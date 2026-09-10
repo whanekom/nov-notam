@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 """
-nhv_notam.py  (v2)
+nhv_notam.py  (v3)
 
-Logs into the NATS AIS UK site, regenerates the saved briefing, downloads the
-PDF and emails it.
-
-Changes from v1:
-  - Logs every row it can see in the briefing list, so we can find out what the
-    saved briefing is actually called.
-  - Selects the row the way PrimeFaces expects, then waits for the "Use" button
-    to become enabled rather than clicking a disabled button 120 times.
-  - Targets the Use button by its real element id.
-  - Saves the page HTML on failure alongside the screenshot.
-  - Shorter default timeout so failures surface quickly.
+Changes from v2:
+  - Searches every frame on the page for the Print PDF control, since the
+    rendered briefing may sit inside an iframe.
+  - Logs every button and link it can see after Generate, so if the control
+    still isn't found we can see what's actually there.
+  - Separates "couldn't click the button" from "clicked but nothing downloaded",
+    which v2 conflated.
+  - Watches for downloads, popups and same-tab PDF navigation.
+  - Auto-accepts any JS dialog.
 """
 
 import logging
@@ -37,11 +35,7 @@ except ImportError:
     pass
 
 BASE_URL = "https://nats-uk.ead-it.com/cms-nats/opencms/en/home/"
-
-# Matched case-insensitively against each row's text. "NHV" alone is a safer
-# default than the full name, since we aren't sure of the exact spelling yet.
-BRIEFING_MATCH = os.getenv("BRIEFING_MATCH", "NHV")
-
+BRIEFING_MATCH = os.getenv("BRIEFING_MATCH", "NHVNOTM")
 USE_BUTTON_ID = "mainForm:handbook:resultList:useButton"
 
 DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", HERE / "downloads"))
@@ -114,40 +108,11 @@ def open_briefing_handbook(page):
     page.wait_for_timeout(2000)
 
 
-def describe_rows(page):
-    """Log what's actually in the saved-briefing list."""
-    rows = page.locator("tr[data-ri]")
-    count = rows.count()
-    log.info("Found %d row(s) in the briefing list", count)
-
-    for i in range(min(count, 25)):
-        try:
-            text = rows.nth(i).inner_text().replace("\n", " | ").strip()
-            log.info("  row %d: %s", i, text[:200])
-        except Exception as exc:
-            log.info("  row %d: could not read (%s)", i, exc)
-
-    if count == 0:
-        # Fall back to dumping any table rows at all, to see what we've got.
-        plain = page.locator("table tr")
-        log.info("No PrimeFaces rows; %d plain <tr> present", plain.count())
-        for i in range(min(plain.count(), 15)):
-            try:
-                text = plain.nth(i).inner_text().replace("\n", " | ").strip()
-                if text:
-                    log.info("  tr %d: %s", i, text[:200])
-            except Exception:
-                pass
-
-    return rows, count
-
-
 def use_button(page):
     return page.locator(f'[id="{USE_BUTTON_ID}"]')
 
 
-def wait_for_use_enabled(page, timeout_ms=10000) -> bool:
-    """PrimeFaces enables the button by removing the disabled attribute."""
+def wait_for_use_enabled(page, timeout_ms=8000) -> bool:
     try:
         page.wait_for_function(
             """(id) => {
@@ -166,62 +131,32 @@ def wait_for_use_enabled(page, timeout_ms=10000) -> bool:
 def select_saved_briefing(page):
     log.info("Looking for a briefing matching %r", BRIEFING_MATCH)
 
-    rows, count = describe_rows(page)
+    rows = page.locator("tr[data-ri]")
+    count = rows.count()
+    log.info("Found %d row(s) in the briefing list", count)
+    for i in range(min(count, 10)):
+        log.info("  row %d: %s", i, rows.nth(i).inner_text().replace("\n", " | ")[:160])
+
     if count == 0:
-        raise RuntimeError(
-            "No rows found in the briefing list. Check the saved HTML artefact."
-        )
+        raise RuntimeError("No rows found in the briefing list.")
 
     pattern = re.compile(re.escape(BRIEFING_MATCH), re.IGNORECASE)
-
-    target_index = None
+    target_index = 0
     for i in range(count):
-        try:
-            if pattern.search(rows.nth(i).inner_text()):
-                target_index = i
-                break
-        except Exception:
-            continue
+        if pattern.search(rows.nth(i).inner_text()):
+            target_index = i
+            break
 
-    if target_index is None:
-        log.warning(
-            "Nothing matched %r - falling back to the first row (newest)",
-            BRIEFING_MATCH,
-        )
-        target_index = 0
+    log.info("Selecting row %d (newest match)", target_index)
+    rows.nth(target_index).locator("td").first.click()
 
-    row = rows.nth(target_index)
-    log.info("Selecting row %d", target_index)
+    page.wait_for_timeout(1000)
+    if not wait_for_use_enabled(page):
+        raise RuntimeError("Row selected but the Use button never enabled.")
 
-    # Try progressively more specific ways of selecting the row, checking after
-    # each whether the Use button woke up.
-    attempts = [
-        ("radio/checkbox in row", lambda: row.locator(
-            "div.ui-radiobutton-box, div.ui-chkbox-box, "
-            "input[type='radio'], input[type='checkbox']").first.click()),
-        ("first cell", lambda: row.locator("td").first.click()),
-        ("row itself", lambda: row.click()),
-    ]
-
-    for label, action in attempts:
-        try:
-            action()
-            log.info("Clicked %s", label)
-        except Exception as exc:
-            log.info("Could not click %s (%s)", label, exc)
-            continue
-
-        page.wait_for_timeout(1000)
-        if wait_for_use_enabled(page, 8000):
-            log.info("Use button is now enabled")
-            use_button(page).click()
-            page.wait_for_load_state("networkidle", timeout=TIMEOUT)
-            return
-
-    raise RuntimeError(
-        "Selected a row but the Use button never enabled. "
-        "Check the saved HTML artefact to see how selection is wired up."
-    )
+    log.info("Clicking Use")
+    use_button(page).click()
+    page.wait_for_load_state("networkidle", timeout=TIMEOUT)
 
 
 def generate_briefing(page):
@@ -236,52 +171,113 @@ def generate_briefing(page):
     generate.click()
 
     page.wait_for_load_state("networkidle", timeout=60000)
-    page.wait_for_timeout(4000)
+    page.wait_for_timeout(5000)
+
+
+def describe_controls(page):
+    """Log every clickable thing across every frame, to find Print PDF."""
+    log.info("--- controls visible after Generate ---")
+    for fi, frame in enumerate(page.frames):
+        log.info("frame %d: %s", fi, (frame.url or "")[:120])
+        try:
+            controls = frame.locator("button, a, input[type='button'], input[type='submit']")
+            n = min(controls.count(), 40)
+            for i in range(n):
+                el = controls.nth(i)
+                try:
+                    label = (el.inner_text() or "").strip()
+                    if not label:
+                        label = el.get_attribute("value") or el.get_attribute("title") or ""
+                    label = label.replace("\n", " ").strip()
+                    if label:
+                        log.info("    [%d] %s", i, label[:80])
+                except Exception:
+                    continue
+        except Exception as exc:
+            log.info("    could not enumerate (%s)", exc)
+    log.info("--- end controls ---")
+
+
+def find_print_control(page):
+    """Return a locator for the Print PDF control, searching all frames."""
+    selectors = [
+        "button:has-text('Print PDF')",
+        "a:has-text('Print PDF')",
+        "input[value*='Print PDF' i]",
+        "button:has-text('Print')",
+        "a:has-text('Print')",
+        "input[value*='Print' i]",
+        "[title*='Print' i]",
+        "[id*='pdf' i]",
+    ]
+    for frame in page.frames:
+        for sel in selectors:
+            try:
+                loc = frame.locator(sel).first
+                if loc.count() and loc.is_visible():
+                    log.info("Found print control %r in frame %s", sel, (frame.url or "top")[:80])
+                    return loc
+            except Exception:
+                continue
+    return None
 
 
 def save_pdf(page, context) -> Path:
-    log.info("Requesting the PDF")
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
     stamp = datetime.now().strftime("%Y-%m-%d")
     target = DOWNLOAD_DIR / f"NHV_NOTAM_{stamp}.pdf"
 
-    print_button = page.get_by_role("button", name="Print PDF", exact=False).first
-    if not print_button.count():
-        print_button = page.locator(
-            "input[value*='Print PDF' i], button:has-text('Print PDF'), "
-            "a:has-text('Print PDF')"
-        ).first
+    describe_controls(page)
 
-    try:
-        with page.expect_download(timeout=45000) as dl_info:
-            print_button.click()
-        dl_info.value.save_as(target)
+    control = find_print_control(page)
+    if control is None:
+        raise RuntimeError(
+            "Could not find a Print PDF control in any frame. "
+            "See the control list above and the saved HTML."
+        )
+
+    downloads = []
+    page.on("download", lambda d: downloads.append(d))
+    page.on("dialog", lambda d: d.accept())
+
+    pages_before = set(context.pages)
+
+    log.info("Clicking the print control")
+    control.click(timeout=15000)
+
+    # Give it time to do whatever it does.
+    page.wait_for_timeout(12000)
+
+    if downloads:
+        downloads[0].save_as(target)
         log.info("Saved via download event: %s", target)
         return target
-    except PlaywrightTimeout:
-        log.warning("No download event - checking for a PDF tab")
 
-    pdf_page = next(
-        (p for p in context.pages if "pdf" in p.url.lower()), None
+    new_pages = [p for p in context.pages if p not in pages_before]
+    candidates = new_pages + [page]
+    for candidate in candidates:
+        try:
+            url = candidate.url
+        except Exception:
+            continue
+        if "pdf" in url.lower() or "print" in url.lower():
+            log.info("Fetching PDF from %s", url[:120])
+            response = context.request.get(url)
+            if response.ok:
+                target.write_bytes(response.body())
+                log.info("Saved via direct fetch: %s", target)
+                return target
+            log.warning("Fetch returned HTTP %s", response.status)
+
+    log.info("Pages now open: %s", [p.url[:80] for p in context.pages])
+    raise RuntimeError(
+        "Clicked the print control but no PDF appeared. See the page list above."
     )
-    if pdf_page is None:
-        raise RuntimeError("Print PDF produced neither a download nor a PDF tab.")
-
-    response = context.request.get(pdf_page.url)
-    if not response.ok:
-        raise RuntimeError(f"Failed to fetch PDF: HTTP {response.status}")
-    target.write_bytes(response.body())
-    log.info("Saved via direct fetch: %s", target)
-    return target
 
 
 def fetch_briefing() -> Path:
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=not DEBUG,
-            slow_mo=400 if DEBUG else 0,
-        )
+        browser = p.chromium.launch(headless=not DEBUG, slow_mo=400 if DEBUG else 0)
         context = browser.new_context(accept_downloads=True)
         context.set_default_timeout(TIMEOUT)
         page = context.new_page()
@@ -296,9 +292,7 @@ def fetch_briefing() -> Path:
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             try:
                 page.screenshot(path=HERE / f"error_{stamp}.png", full_page=True)
-                (HERE / f"page_{stamp}.html").write_text(
-                    page.content(), encoding="utf-8"
-                )
+                (HERE / f"page_{stamp}.html").write_text(page.content(), encoding="utf-8")
                 log.error("Saved error_%s.png and page_%s.html", stamp, stamp)
             except Exception:
                 pass
