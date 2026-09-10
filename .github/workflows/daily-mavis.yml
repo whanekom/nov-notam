@@ -1,0 +1,45 @@
+name: Daily MAVIS briefing packs
+
+on:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  fetch-packs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Fetch packs and email them
+        env:
+          MAVIS_USER: ${{ secrets.MAVIS_USER }}
+          MAVIS_PASS: ${{ secrets.MAVIS_PASS }}
+          SMTP_HOST: smtp.gmail.com
+          SMTP_PORT: "587"
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_FROM: ${{ secrets.SMTP_USER }}
+          MAIL_TO: whanekom@me.com
+        run: python mavis_packs.py
+
+      - name: Upload debug output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mavis-debug
+          path: |
+            *.png
+            *.log
+            *.html
+          if-no-files-found: ignore
