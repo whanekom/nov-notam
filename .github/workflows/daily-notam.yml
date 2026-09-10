@@ -2,7 +2,7 @@ name: Daily NHV NOTAM briefing
 
 on:
   schedule:
-    - cron: "0 5 * * *"
+    - cron: "30 4 * * *"
   workflow_dispatch:
 
 jobs:
