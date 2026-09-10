@@ -1,20 +1,13 @@
 #!/usr/bin/env python3
 """
-mavis_packs.py
+mavis_packs.py  (v2)
 
-Logs into MAVIS (Met Office aviation service) via Azure AD B2C, visits each
-Aberdeen briefing pack page, renders it to PDF and emails the set.
-
-The site's "Print to PDF" button opens the browser's native print dialog, which
-automation can't touch, so we render the page to PDF directly instead. The
-output is the same content, laid out for A4.
-
-Credentials come from environment variables. Nothing sensitive lives in here.
-
-Usage:
-    python mavis_packs.py
-    NO_EMAIL=1 python mavis_packs.py     # render only, don't send
-    DEBUG=1 python mavis_packs.py        # visible browser (PDF render disabled)
+Changes from v1:
+  - Dumps every input and button on the login page, with visibility, before
+    attempting anything. v1 guessed wrong about the form layout.
+  - Handles the single-page form (username + password together) properly.
+  - Falls back to pressing Enter when the submit button is present but hidden.
+  - Saves the login page HTML on failure.
 """
 
 import logging
@@ -63,7 +56,6 @@ SMTP_PASS = os.getenv("SMTP_PASS")
 MAIL_FROM = os.getenv("MAIL_FROM", SMTP_USER or "")
 MAIL_TO = os.getenv("MAIL_TO", "whanekom@me.com")
 
-# Gmail rejects messages over 25 MB; zip the set if we get near that.
 ZIP_THRESHOLD_MB = float(os.getenv("ZIP_THRESHOLD_MB", "18"))
 
 DEBUG = os.getenv("DEBUG") == "1"
@@ -81,77 +73,163 @@ logging.basicConfig(
 log = logging.getLogger("mavis")
 
 
+def describe_login_page(page):
+    """Log every form control we can see, so we stop guessing."""
+    log.info("--- login page: %s ---", page.url[:140])
+
+    try:
+        inputs = page.locator("input")
+        log.info("inputs: %d", inputs.count())
+        for i in range(min(inputs.count(), 25)):
+            el = inputs.nth(i)
+            try:
+                log.info(
+                    "  input[%d] id=%r name=%r type=%r visible=%s",
+                    i,
+                    el.get_attribute("id"),
+                    el.get_attribute("name"),
+                    el.get_attribute("type"),
+                    el.is_visible(),
+                )
+            except Exception:
+                continue
+    except Exception as exc:
+        log.info("could not enumerate inputs (%s)", exc)
+
+    try:
+        buttons = page.locator("button, a[role='button'], input[type='submit']")
+        log.info("buttons: %d", buttons.count())
+        for i in range(min(buttons.count(), 25)):
+            el = buttons.nth(i)
+            try:
+                label = (el.inner_text() or el.get_attribute("value") or "").strip()
+                log.info(
+                    "  button[%d] id=%r text=%r visible=%s",
+                    i,
+                    el.get_attribute("id"),
+                    label[:50],
+                    el.is_visible(),
+                )
+            except Exception:
+                continue
+    except Exception as exc:
+        log.info("could not enumerate buttons (%s)", exc)
+
+    log.info("--- end login page ---")
+
+
+def first_visible(page, selector):
+    """Return the first genuinely visible match, or None."""
+    loc = page.locator(selector)
+    for i in range(min(loc.count(), 10)):
+        el = loc.nth(i)
+        try:
+            if el.is_visible():
+                return el
+        except Exception:
+            continue
+    return None
+
+
 def log_in(page):
-    """Azure AD B2C: username, Next, password, Sign in."""
     log.info("Opening MAVIS")
     page.goto(HOME, wait_until="domcontentloaded", timeout=TIMEOUT)
-    page.wait_for_timeout(3000)
+    page.wait_for_timeout(4000)
 
-    # If we're not already bounced to the login host, look for a sign-in link.
     if "login.auth.metoffice.cloud" not in page.url:
-        signin = page.locator(
+        signin = first_visible(
+            page,
             "a:has-text('Sign in'), button:has-text('Sign in'), "
-            "a:has-text('Log in'), button:has-text('Log in')"
-        ).first
-        if signin.count():
+            "a:has-text('Log in'), button:has-text('Log in')",
+        )
+        if signin:
             log.info("Clicking sign in")
             signin.click()
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(4000)
 
     if "login.auth.metoffice.cloud" not in page.url:
-        log.info("Already signed in (no login page reached)")
+        log.info("Already signed in")
         return
 
-    log.info("On the B2C login page")
+    describe_login_page(page)
 
-    user_field = page.locator(
-        "#signInName, #email, input[name='signInName'], "
-        "input[type='email'], input[name='email']"
-    ).first
-    user_field.wait_for(state="visible", timeout=TIMEOUT)
-    user_field.fill(MAVIS_USER)
-
-    # B2C sometimes shows username and password together, sometimes in two steps.
-    pass_field = page.locator("#password, input[type='password']").first
-    if not (pass_field.count() and pass_field.is_visible()):
-        log.info("Two-step login - clicking Next")
-        nxt = page.locator(
-            "#continue, #next, button:has-text('Next'), "
-            "button:has-text('Continue'), input[value='Next' i]"
-        ).first
-        nxt.click()
+    # Some B2C pages hide the local-account form behind a link.
+    reveal = first_visible(
+        page,
+        "a:has-text('email'), button:has-text('email'), "
+        "a:has-text('Sign in with'), button:has-text('Sign in with')",
+    )
+    if reveal and not first_visible(page, "input[type='password']"):
+        log.info("Revealing the local account form")
+        reveal.click()
         page.wait_for_timeout(2500)
-        pass_field = page.locator("#password, input[type='password']").first
+        describe_login_page(page)
 
-    pass_field.wait_for(state="visible", timeout=TIMEOUT)
+    user_field = first_visible(
+        page,
+        "#signInName, #email, input[name='signInName'], "
+        "input[type='email'], input[name='email'], input[type='text']",
+    )
+    if user_field is None:
+        raise RuntimeError("No visible username field. See the dump above.")
+
+    log.info("Filling username")
+    user_field.fill(MAVIS_USER)
+    page.wait_for_timeout(800)
+
+    pass_field = first_visible(page, "#password, input[type='password']")
+
+    if pass_field is None:
+        # Genuinely two-step: submit the username first.
+        log.info("No visible password field - submitting username")
+        nxt = first_visible(
+            page,
+            "#continue, #next, button[type='submit'], "
+            "button:has-text('Next'), button:has-text('Continue')",
+        )
+        if nxt:
+            nxt.click()
+        else:
+            user_field.press("Enter")
+        page.wait_for_timeout(3500)
+        describe_login_page(page)
+        pass_field = first_visible(page, "#password, input[type='password']")
+
+    if pass_field is None:
+        raise RuntimeError("Never found a visible password field. See the dumps above.")
+
+    log.info("Filling password")
     pass_field.fill(MAVIS_PASS)
+    page.wait_for_timeout(500)
 
-    log.info("Submitting password")
-    submit = page.locator(
+    submit = first_visible(
+        page,
         "#next, #continue, button[type='submit'], "
-        "button:has-text('Sign in'), button:has-text('Log in'), "
-        "input[type='submit']"
-    ).first
-    submit.click()
+        "button:has-text('Log in'), button:has-text('Sign in'), "
+        "input[type='submit']",
+    )
+    if submit:
+        log.info("Clicking submit")
+        submit.click()
+    else:
+        log.info("Submit button not visible - pressing Enter instead")
+        pass_field.press("Enter")
 
     try:
         page.wait_for_url(f"{BASE}/**", timeout=TIMEOUT)
     except PlaywrightTimeout:
-        log.warning("Didn't land back on MAVIS; currently at %s", page.url[:120])
+        log.warning("Didn't land back on MAVIS; at %s", page.url[:140])
 
-    page.wait_for_timeout(4000)
+    page.wait_for_timeout(5000)
 
     if "login.auth.metoffice.cloud" in page.url:
-        raise RuntimeError(
-            "Still on the login page after submitting. If the account uses "
-            "multi-factor authentication, unattended login isn't possible."
-        )
+        describe_login_page(page)
+        raise RuntimeError("Still on the login page after submitting.")
 
     log.info("Logged in")
 
 
 def wait_for_images(page, timeout_ms=40000):
-    """The packs are mostly chart images; don't render until they've loaded."""
     try:
         page.wait_for_function(
             """() => {
@@ -163,8 +241,8 @@ def wait_for_images(page, timeout_ms=40000):
         )
         log.info("  all %d image(s) loaded", page.locator("img").count())
     except PlaywrightTimeout:
-        total = page.locator("img").count()
-        log.warning("  timed out waiting for images (%d on page) - rendering anyway", total)
+        log.warning("  timed out waiting for images (%d on page) - rendering anyway",
+                    page.locator("img").count())
 
 
 def render_pack(page, name, slug) -> Path:
@@ -172,7 +250,6 @@ def render_pack(page, name, slug) -> Path:
     log.info("Fetching %s", name)
     page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT)
 
-    # Confirm we got the pack and not a redirect back to login or a 404.
     if "login.auth" in page.url:
         raise RuntimeError(f"Redirected to login while fetching {name}")
 
@@ -192,23 +269,16 @@ def render_pack(page, name, slug) -> Path:
     )
     size_kb = out.stat().st_size / 1024
     log.info("  saved %s (%.0f KB)", out.name, size_kb)
-
     if size_kb < 20:
         log.warning("  %s looks suspiciously small - may be blank", out.name)
-
     return out
 
 
 def fetch_all() -> list:
-    if DEBUG:
-        log.warning("DEBUG mode uses a visible browser; page.pdf() needs headless. "
-                    "Run without DEBUG to produce PDFs.")
-
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=not DEBUG, slow_mo=300 if DEBUG else 0)
         context = browser.new_context(
-            viewport={"width": 1400, "height": 1000},
-            accept_downloads=True,
+            viewport={"width": 1400, "height": 1000}, accept_downloads=True
         )
         context.set_default_timeout(TIMEOUT)
         page = context.new_page()
@@ -216,17 +286,13 @@ def fetch_all() -> list:
         paths = []
         try:
             log_in(page)
-
             for name, slug in PACKS:
                 try:
                     paths.append(render_pack(page, name, slug))
                 except Exception as exc:
-                    # One bad pack shouldn't lose the other five.
                     log.error("Failed on %s: %s", name, exc)
-
             if not paths:
                 raise RuntimeError("No packs were rendered.")
-
             return paths
         except Exception:
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -263,24 +329,20 @@ def send_email(paths: list):
     msg.set_content("\n".join(body) + "\n")
 
     if total_mb > ZIP_THRESHOLD_MB:
-        log.info("Over %.0f MB - zipping instead of attaching separately", ZIP_THRESHOLD_MB)
+        log.info("Zipping (over %.0f MB)", ZIP_THRESHOLD_MB)
         zip_path = OUT_DIR / f"aberdeen_packs_{datetime.now():%Y-%m-%d}.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for p in paths:
                 zf.write(p, p.name)
         msg.add_attachment(
-            zip_path.read_bytes(),
-            maintype="application",
-            subtype="zip",
-            filename=zip_path.name,
+            zip_path.read_bytes(), maintype="application",
+            subtype="zip", filename=zip_path.name,
         )
     else:
         for p in paths:
             msg.add_attachment(
-                p.read_bytes(),
-                maintype="application",
-                subtype="pdf",
-                filename=p.name,
+                p.read_bytes(), maintype="application",
+                subtype="pdf", filename=p.name,
             )
 
     log.info("Sending to %s", MAIL_TO)
