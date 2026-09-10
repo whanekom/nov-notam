@@ -30,7 +30,7 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           MAIL_FROM: ${{ secrets.SMTP_USER }}
-          MAIL_TO: whanekom@me.com
+          MAIL_TO: whanekom@me.com,AberdeenOPS@nhv.be
         run: python nhv_notam.py
 
       - name: Upload debug output on failure
