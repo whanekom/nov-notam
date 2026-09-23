@@ -1,8 +1,10 @@
 name: Daily MAVIS briefing packs
 
 on:
-  schedule:
-    - cron: "30 4 * * *"
+  # Automatic runs paused at the owner's request on 2026-09-23.
+  # To resume, uncomment the schedule below.
+  # schedule:
+  #   - cron: "30 4 * * *"
   workflow_dispatch:
 
 jobs:
