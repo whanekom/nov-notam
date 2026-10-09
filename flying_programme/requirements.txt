@@ -1,0 +1,5 @@
+# Only needed on evenings when the programme arrives as a picture (OCR).
+# Also needs the Tesseract program itself: sudo apt-get install tesseract-ocr
+numpy
+opencv-python-headless
+pytesseract
