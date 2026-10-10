@@ -20,3 +20,9 @@ downloads the PDF and emails it.
 
 Secrets (NATS_USER, NATS_PASS, SMTP_USER, SMTP_PASS) are set as Render
 environment variables, never committed to this repo.
+
+## Flying programme alert
+
+A separate job in `flying_programme/` reads the evening NHV Ops "Flying
+Programme" email from Gmail and sends one crew code's lines to WhatsApp.
+See `flying_programme/README.md`.

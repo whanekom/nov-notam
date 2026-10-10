@@ -1,0 +1,73 @@
+name: Flying programme alert
+
+# Reads the evening NHV Ops "Flying Programme" email from Gmail and sends the
+# lines for one crew code to WhatsApp. Code and notes: flying_programme/
+#
+# Times are UTC. The email usually lands around 16:30-17:15 UK time, so check
+# every 15 minutes through the late afternoon and hourly after that.
+on:
+  schedule:
+    - cron: "*/15 15-18 * * *"
+    - cron: "0 19-21 * * *"
+    - cron: "30 20 * * *"   # once a day: warn if no programme email has arrived
+  workflow_dispatch:
+
+concurrency:
+  group: flying-programme
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: flying_programme
+    env:
+      # Same Gmail login the NOTAM job already uses to send mail.
+      GMAIL_USER: ${{ secrets.SMTP_USER }}
+      GMAIL_APP_PASSWORD: ${{ secrets.SMTP_PASS }}
+      WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
+      CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+      CREW_CODE: ${{ vars.CREW_CODE || 'WIHAN' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Until the WhatsApp secrets exist, skip quietly instead of failing
+      # every 15 minutes.
+      - name: Check the secrets are set
+        id: config
+        run: |
+          if [ -z "$GMAIL_USER" ] || [ -z "$GMAIL_APP_PASSWORD" ] || [ -z "$WHATSAPP_PHONE" ] || [ -z "$CALLMEBOT_APIKEY" ]; then
+            echo "::warning::Not set up yet - add the WHATSAPP_PHONE and CALLMEBOT_APIKEY secrets (see flying_programme/README.md)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.config.outputs.ready == 'true'
+        with:
+          python-version: "3.12"
+
+      # Quick look first, so the picture-reading tools are only installed
+      # on the runs where there is actually a new email to read.
+      - name: Is there a new programme email?
+        id: peek
+        if: steps.config.outputs.ready == 'true'
+        run: python alert.py --peek
+
+      - name: Install picture-reading tools
+        if: steps.peek.outputs.new == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tesseract-ocr
+          pip install -q -r requirements.txt
+
+      - name: Read the programme and send the WhatsApp
+        if: steps.peek.outputs.new == 'true'
+        run: python alert.py
+
+      - name: Warn if no programme email arrived today
+        if: steps.config.outputs.ready == 'true' && github.event.schedule == '30 20 * * *'
+        run: python alert.py --check-missing
