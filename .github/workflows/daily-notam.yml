@@ -36,6 +36,20 @@ jobs:
           NO_EMAIL: "1"
         run: python nhv_notam.py
 
+      - name: Show why it failed
+        if: failure()
+        run: |
+          {
+            tail -n 22 nhv_notam.log | cut -c1-260
+            echo "--- page text ---"
+            for f in page_*.html; do
+              [ -f "$f" ] || continue
+              python3 -c "import re,sys,html; t=open(sys.argv[1],encoding='utf-8').read(); t=re.sub(r'(?s)<(script|style).*?</\\1>',' ',t); t=html.unescape(re.sub(r'<[^>]+>',' ',t)); print(re.sub(r'\\s+',' ',t)[:900])" "$f"
+            done
+          } > why.txt 2>&1 || true
+          msg=$(python3 -c "import sys; print(open('why.txt',encoding='utf-8',errors='replace').read().replace('%','%25').replace('\\r','').replace('\\n','%0A'))")
+          echo "::error title=NOTAM test failure::$msg"
+
       - name: Upload debug output on failure
         if: failure()
         uses: actions/upload-artifact@v4
