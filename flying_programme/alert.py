@@ -40,8 +40,9 @@ CREW_CODE = os.environ.get("CREW_CODE", "WIHAN").strip().upper()
 SUBJECT_WORDS = "flying programme"
 DONE_LABEL = "programme-alert-sent"
 LOOKBACK_DAYS = 3
-# Other people's crew codes are left out of the message unless this is switched on.
-SHOW_CREW = os.environ.get("SHOW_CREW", "").strip().lower() in ("1", "true", "yes")
+# Your own lines show who you are crewed with (their code). Nobody else on the
+# programme is listed. Set SHOW_CREW=false to leave the crewmate out as well.
+SHOW_CREW = os.environ.get("SHOW_CREW", "").strip().lower() not in ("0", "false", "no")
 FOOTER = "Details subject to change - the Ops email is the authority."
 
 
@@ -135,7 +136,7 @@ def line_title(row: dict) -> str:
     return row["report"] or row["route"] or "Duty"
 
 
-def format_line(row: dict) -> str:
+def format_line(row: dict, mine: bool = True) -> str:
     """One programme line as WhatsApp text: the duty itself, nobody else's code."""
     import programme
 
@@ -150,8 +151,12 @@ def format_line(row: dict) -> str:
         out.append(f"Aircraft: {row['aircraft']}")
     if row["callsign"]:
         out.append(f"Callsign: {row['callsign']}")
-    if SHOW_CREW:
-        out.append(f"Crew: {row['crew']}")
+    if not mine:  # a line shown only because its crew cell needs checking
+        out.append(f"Crew as read: {row['crew']}")
+    elif SHOW_CREW:
+        mates = programme.crewmates(row, CREW_CODE)
+        if mates:
+            out.append(f"Crewmate: {', '.join(mates)}")
     if row["remarks"]:
         out.append(f"Remarks: {row['remarks']}")
     if row.get("crew_inherited"):
@@ -199,7 +204,7 @@ def build_message(table: dict, subject_date: dt.date | None, updated: bool = Fal
             f"WARNING: a code very close to {CREW_CODE} is on the line(s) below - "
             "a typo or a misread. Check the Ops email."
         )
-        parts.extend(format_line(r) for r in maybe)
+        parts.extend(format_line(r, mine=False) for r in maybe)
     elif not mine and table.get("doubts"):
         # Picture days only: say so when the answer rests on an unclear read.
         parts.append(

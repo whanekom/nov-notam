@@ -11,7 +11,7 @@ The Ops email stays the authority. This is a convenience copy.
 
 ## What you get
 
-The message says whether you are on the programme and gives only your own lines. No other crew are listed.
+The message says whether you are on the programme and gives only your own lines, including the code of whoever you are crewed with. Nobody else on the programme is listed.
 
 On the programme:
 
@@ -24,6 +24,7 @@ WIHAN is on the programme (1 line):
 Report: 07:00
 Aircraft: G-NHVV
 Callsign: GOLD651
+Crewmate: IAGOU
 
 Details subject to change - the Ops email is the authority.
 ```
@@ -40,7 +41,7 @@ When a line gives one report time per pilot (`10:00/06:00`), yours is picked out
 
 You also get a warning if the email arrives but can't be read, if a code very close to yours appears, if a second programme arrives for the same date, or if no programme email has arrived by 20:30 UTC.
 
-To include who you are crewed with, add a repository *variable* `SHOW_CREW` set to `true`.
+To leave the crewmate out, add a repository *variable* `SHOW_CREW` set to `false`.
 
 ## Setup
 
