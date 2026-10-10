@@ -16,7 +16,8 @@ Usage
 Settings come from environment variables (GitHub Actions secrets):
   GMAIL_USER, GMAIL_APP_PASSWORD   mailbox the programme is forwarded to
   WHATSAPP_PHONE, CALLMEBOT_APIKEY where to send the message
-  CREW_CODE                        defaults to WIHAN
+  CREW_CODE                        whose lines to send (defaults to WIHAN)
+  CREW_NAMES                       optional "CODE=Full Name" list for crewmates
 """
 
 from __future__ import annotations
@@ -46,9 +47,51 @@ SHOW_CREW = os.environ.get("SHOW_CREW", "").strip().lower() not in ("0", "false"
 FOOTER = "Details subject to change - the Ops email is the authority."
 
 
+def _load_crew_names() -> dict[str, str]:
+    """Crew code -> full name, from the CREW_NAMES setting.
+
+    Format: one "CODE=Full Name" per line (or separated by semicolons). It is
+    kept in a secret, not in the repository, because it names real people.
+    """
+    names = {}
+    for entry in re.split(r"[;\n]+", os.environ.get("CREW_NAMES", "")):
+        code, sep, name = entry.partition("=")
+        if sep and code.strip() and name.strip():
+            names[code.strip().upper()] = name.strip()
+    return names
+
+
+CREW_NAMES = _load_crew_names()
+
+
+def crew_label(code: str) -> str:
+    """ "Full Name (CODE)" when the name is known, otherwise just the code."""
+    name = CREW_NAMES.get(code.upper())
+    return f"{name} ({code})" if name else code
+
+
 # --------------------------------------------------------------------------
 # WhatsApp
 # --------------------------------------------------------------------------
+
+def _verdict_only(body: str, message: str) -> str:
+    """CallMeBot's result with the echoed message and phone number removed.
+
+    Its reply repeats the whole message before saying what happened. Run logs
+    may be readable by other people, so only the result is ever logged.
+    """
+    plain = re.sub(r"<[^>]+>", " ", body)
+    marker = plain.rfind("Text to send:")
+    if marker != -1:
+        tail = plain[marker:]
+        last_line = message.strip().splitlines()[-1].strip()
+        end = tail.rfind(last_line)
+        plain = tail[end + len(last_line):] if end != -1 else ""
+    plain = re.sub(r"\s+", " ", plain).strip()
+    if not plain or len(plain) > 200:
+        return "no readable result in the reply"
+    return plain
+
 
 def send_whatsapp(text: str, dry_run: bool = False) -> None:
     """Send a WhatsApp message to yourself through CallMeBot."""
@@ -74,12 +117,11 @@ def send_whatsapp(text: str, dry_run: bool = False) -> None:
             status, body = None, str(exc)
         # CallMeBot echoes the message first and puts its verdict at the end,
         # so the end of the reply is the part worth reading and logging.
-        verdict = re.sub(r"<[^>]+>", " ", body)
-        verdict = re.sub(r"\s+", " ", verdict).strip()[-300:]
+        verdict = _verdict_only(body, text)
         if status is not None and "queued" in body.lower():
             print(f"WhatsApp message accepted by CallMeBot (HTTP {status}).")
             return
-        last_error = f"HTTP {status}: ...{verdict}"
+        last_error = f"HTTP {status}: {verdict}"
         print(f"CallMeBot attempt {attempt + 1} not accepted: {last_error}")
         if re.search(r"apikey|api key|not allowed|not activated|paused", body, re.I):
             break  # a set-up problem; trying again will not help
@@ -156,7 +198,7 @@ def format_line(row: dict, own_line: bool = True) -> str:
     elif SHOW_CREW:
         mates = programme.crewmates(row, CREW_CODE)
         if mates:
-            out.append(f"Crewmate: {', '.join(mates)}")
+            out.append("Crewmate: " + ", ".join(crew_label(m) for m in mates))
     if row["remarks"]:
         out.append(f"Remarks: {row['remarks']}")
     if row.get("crew_inherited"):

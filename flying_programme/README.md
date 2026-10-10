@@ -13,18 +13,18 @@ The Ops email stays the authority. This is a convenience copy.
 
 The message says whether you are on the programme and gives only your own lines, including the code of whoever you are crewed with. Nobody else on the programme is listed.
 
-On the programme:
+On the programme (an invented example):
 
 ```
 *Flying programme Sat 26 Sep*
 
 WIHAN is on the programme (1 line):
 
-*STD 08:00 WENH*
+*STD 08:00 PLATFORM A*
 Report: 07:00
-Aircraft: G-NHVV
-Callsign: GOLD651
-Crewmate: IAGOU
+Aircraft: G-ABCD
+Callsign: GOLD123
+Crewmate: Jo Bloggs (JOBLO)
 
 Details subject to change - the Ops email is the authority.
 ```
@@ -41,7 +41,16 @@ When a line gives one report time per pilot (`10:00/06:00`), yours is picked out
 
 You also get a warning if the email arrives but can't be read, if a code very close to yours appears, if a second programme arrives for the same date, or if no programme email has arrived by 20:30 UTC.
 
-To leave the crewmate out, add a repository *variable* `SHOW_CREW` set to `false`.
+The crewmate is shown by code unless you supply names. To show names, add a repository **secret** called `CREW_NAMES` with one `CODE=Full Name` per line:
+
+```
+JOBLO=Jo Bloggs
+MASMI=Mary Smith
+```
+
+Keep this list in the secret, never in a file here: it names real people, and anything in the repository (and its run logs, if the repository is public) can be read by others. Codes not in the list are shown as the code.
+
+To leave the crewmate out altogether, add a repository *variable* `SHOW_CREW` set to `false`.
 
 ## Setup
 
