@@ -81,7 +81,7 @@ Actions tab → *Flying programme alert* → *Run workflow*. Any programme email
 
 ## How it runs
 
-- Checks every 30 minutes between 18:00 and 20:00 UK time (in summer there is one extra check at about 20:30). GitHub's timer can run 5–20 minutes late.
+- Checks every 30 minutes between 18:00 and 20:00 UK time. A Claude scheduled task starts each check (18:02, 18:32, 19:02, 19:32, 20:02); GitHub's own timer is kept as a backup because it can run late or skip a slot. The "no programme email today" warning comes from the 20:02 check started by the scheduled task.
 - Each email is handled once: it gets a `programme-alert-sent` label and is then moved to Gmail's Trash, which Gmail empties after 30 days. An email that could not be read is left in place. To keep handled emails, add a repository *variable* `KEEP_EMAILS` set to `true`.
 - If WhatsApp sending fails, the run fails (GitHub emails you) and the next run tries again.
 - GitHub pauses scheduled jobs in a repository with no activity for 60 days and emails you first; re-enable from the Actions tab.
