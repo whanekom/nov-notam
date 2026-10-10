@@ -35,6 +35,9 @@ jobs:
       # Your own lines show your crewmate's code. Set a repository variable
       # SHOW_CREW=false to leave that out.
       SHOW_CREW: ${{ vars.SHOW_CREW }}
+      # Handled emails are moved to Gmail's Trash. Set a repository variable
+      # KEEP_EMAILS=true to leave them where they are.
+      KEEP_EMAILS: ${{ vars.KEEP_EMAILS }}
     steps:
       - uses: actions/checkout@v4
 

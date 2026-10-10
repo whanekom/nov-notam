@@ -17,6 +17,7 @@ Settings come from environment variables (GitHub Actions secrets):
   GMAIL_USER, GMAIL_APP_PASSWORD   mailbox the programme is forwarded to
   WHATSAPP_PHONE, CALLMEBOT_APIKEY where to send the message
   CREW_CODE                        whose lines to send (defaults to WIHAN)
+  KEEP_EMAILS                      true = do not move handled emails to Trash
 """
 
 from __future__ import annotations
@@ -43,6 +44,9 @@ LOOKBACK_DAYS = 3
 # Your own lines show who you are crewed with (their code). Nobody else on the
 # programme is listed. Set SHOW_CREW=false to leave the crewmate out as well.
 SHOW_CREW = os.environ.get("SHOW_CREW", "").strip().lower() not in ("0", "false", "no")
+# Once an email has been dealt with it is moved to Gmail's Trash (Gmail empties
+# that after 30 days). Set KEEP_EMAILS=true to leave handled emails in place.
+KEEP_EMAILS = os.environ.get("KEEP_EMAILS", "").strip().lower() in ("1", "true", "yes")
 FOOTER = "Details subject to change - the Ops email is the authority."
 
 
@@ -270,13 +274,17 @@ def html_bodies(msg: email.message.Message) -> list[str]:
     return found
 
 
-def message_for_email(raw: bytes, updated: bool = False, any_date: bool = False) -> str | None:
+def message_for_email(
+    raw: bytes, updated: bool = False, any_date: bool = False
+) -> tuple[str | None, bool]:
     """Build the WhatsApp text for one programme email.
 
     Ops send the programme either as a real table in the email text or as a
     picture of the spreadsheet; the table is tried first because it needs no
-    OCR. Returns None when the email should be ignored (a reply with no
-    programme in it, or a programme for a day that has already passed).
+    OCR. Returns (text, readable). text is None when the email should be
+    ignored (a reply with no programme in it, or a programme for a day that
+    has already passed). readable is False when the programme could not be
+    read and the text is only a warning to go and look at the email.
     """
     import programme
 
@@ -286,7 +294,7 @@ def message_for_email(raw: bytes, updated: bool = False, any_date: bool = False)
     today = dt.datetime.now(UK).date()
     if subject_date and subject_date < today and not any_date:
         print(f"Skipping '{subject}': programme date has passed.")
-        return None
+        return None, True
 
     for html in html_bodies(msg):
         try:
@@ -294,7 +302,7 @@ def message_for_email(raw: bytes, updated: bool = False, any_date: bool = False)
         except programme.ProgrammeReadError:
             continue
         print("Programme read from the table in the email text.")
-        return build_message(table, subject_date, updated)
+        return build_message(table, subject_date, updated), True
 
     reason = "no table or picture in the email"
     for picture in images_in(msg)[:5]:
@@ -307,12 +315,12 @@ def message_for_email(raw: bytes, updated: bool = False, any_date: bool = False)
             reason = "the table has no crew lines"
             continue
         print("Programme read from the picture in the email.")
-        return build_message(table, subject_date, updated)
+        return build_message(table, subject_date, updated), True
 
     if re.match(r"\s*re\s*:", subject, re.I):
         print(f"Skipping '{subject}': a reply with no programme in it.")
-        return None
-    return unreadable_message(subject, reason)
+        return None, True
+    return unreadable_message(subject, reason), False
 
 
 # --------------------------------------------------------------------------
@@ -322,23 +330,23 @@ def message_for_email(raw: bytes, updated: bool = False, any_date: bool = False)
 def open_mailbox() -> imaplib.IMAP4_SSL:
     imap = imaplib.IMAP4_SSL("imap.gmail.com")
     imap.login(os.environ["GMAIL_USER"], os.environ["GMAIL_APP_PASSWORD"])
-    folder = "INBOX"
+    # Gmail's "All Mail" and "Trash"/"Bin" folders, whatever language they are named in.
+    imap.all_folder, imap.trash_folder = "INBOX", None
     _, listing = imap.list()
     for line in listing or []:
         text = line.decode("utf-8", "replace")
-        if "\\All" in text:  # Gmail's "All Mail", whatever language it is named in
-            m = re.search(r'"([^"]+)"\s*$', text)
-            if m:
-                folder = m.group(1)
-    imap.select(f'"{folder}"')
+        m = re.search(r'"([^"]+)"\s*$', text)
+        if not m:
+            continue
+        if "\\All" in text:
+            imap.all_folder = m.group(1)
+        elif "\\Trash" in text:
+            imap.trash_folder = m.group(1)
+    imap.select(f'"{imap.all_folder}"')
     return imap
 
 
-def list_programme_emails(imap: imaplib.IMAP4_SSL) -> list[dict]:
-    """Recent programme emails as {uid, subject, received, done}, oldest first."""
-    query = f'"subject:({SUBJECT_WORDS}) newer_than:{LOOKBACK_DAYS}d"'
-    _, data = imap.uid("SEARCH", "X-GM-RAW", query)
-    uids = data[0].split() if data and data[0] else []
+def _list_selected_folder(imap: imaplib.IMAP4_SSL, uids: list[bytes]) -> list[dict]:
     emails = []
     for uid in uids:
         _, fetched = imap.uid(
@@ -365,8 +373,49 @@ def list_programme_emails(imap: imaplib.IMAP4_SSL) -> list[dict]:
             "subject": subject,
             "received": received,
             "done": DONE_LABEL.encode() in meta,
+            "in_trash": False,
         })
+    return emails
+
+
+def list_programme_emails(imap: imaplib.IMAP4_SSL) -> list[dict]:
+    """Recent programme emails as {uid, subject, received, done, in_trash}, oldest first.
+
+    Emails already moved to Trash are included (always as done) so that the
+    "did one arrive today" and "is this a second one for the same date"
+    checks still see them. Only emails outside Trash are ever processed.
+    """
+    query = f'"subject:({SUBJECT_WORDS}) newer_than:{LOOKBACK_DAYS}d"'
+    _, data = imap.uid("SEARCH", "X-GM-RAW", query)
+    emails = _list_selected_folder(imap, data[0].split() if data and data[0] else [])
+
+    if imap.trash_folder:
+        try:
+            imap.select(f'"{imap.trash_folder}"', readonly=True)
+            since = (dt.datetime.now(UK) - dt.timedelta(days=LOOKBACK_DAYS)).strftime("%d-%b-%Y")
+            _, data = imap.uid("SEARCH", "SUBJECT", f'"{SUBJECT_WORDS}"', "SINCE", since)
+            trashed = _list_selected_folder(imap, data[0].split() if data and data[0] else [])
+            for item in trashed:
+                item["done"], item["in_trash"] = True, True
+            emails += trashed
+        except Exception as exc:  # the Trash is only a cross-check; carry on without it
+            print(f"Could not look in Trash: {exc}")
+        finally:
+            imap.select(f'"{imap.all_folder}"')
     return sorted(emails, key=lambda e: e["received"])
+
+
+def move_to_trash(imap: imaplib.IMAP4_SSL, uid: bytes) -> None:
+    """Move a handled email to Gmail's Trash. Never raises: the email is
+    already marked as done, so a failure here must not cause a re-send."""
+    if not imap.trash_folder:
+        print("No Trash folder found - leaving the email where it is.")
+        return
+    try:
+        status, _ = imap.uid("COPY", uid, f'"{imap.trash_folder}"')
+        print("Email moved to Trash." if status == "OK" else f"Could not move to Trash: {status}")
+    except Exception as exc:
+        print(f"Could not move to Trash: {exc}")
 
 
 def is_programme_subject(subject: str) -> bool:
@@ -409,11 +458,16 @@ def cmd_process(dry_run: bool) -> int:
         raw = next(part[1] for part in fetched if isinstance(part, tuple))
         date = parse_programme_date(item["subject"])
         try:
-            text = message_for_email(raw, updated=date is not None and date in sent_dates)
+            text, readable = message_for_email(
+                raw, updated=date is not None and date in sent_dates
+            )
             if text:
                 send_whatsapp(text, dry_run)
             if not dry_run:
                 mark_done(imap, item["uid"])
+                # An email that could not be read stays put, so it can be looked at.
+                if readable and not KEEP_EMAILS:
+                    move_to_trash(imap, item["uid"])
             sent_dates.add(date)
         except Exception as exc:  # leave it unmarked so the next run tries again
             failures += 1
@@ -440,7 +494,7 @@ def cmd_check_missing(dry_run: bool) -> int:
 
 def cmd_eml(path: str) -> int:
     with open(path, "rb") as fh:
-        text = message_for_email(fh.read(), any_date=True)
+        text, _ = message_for_email(fh.read(), any_date=True)
     if text:
         send_whatsapp(text, dry_run=True)
     else:
