@@ -30,7 +30,8 @@ jobs:
       WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
       CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
       CREW_CODE: ${{ vars.CREW_CODE || 'WIHAN' }}
-      # Set a repository variable SHOW_CREW=true to include who you are crewed with.
+      # Your own lines show your crewmate's code. Set a repository variable
+      # SHOW_CREW=false to leave that out.
       SHOW_CREW: ${{ vars.SHOW_CREW }}
     steps:
       - uses: actions/checkout@v4

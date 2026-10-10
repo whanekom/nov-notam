@@ -430,6 +430,15 @@ def own_report(row: dict, my_code: str) -> str:
     return report
 
 
+def crewmates(row: dict, my_code: str) -> list[str]:
+    """The other crew codes on a line that my_code is crewed on."""
+    codes = [c for c in re.split(r"[/\s,&+]+", row["crew"]) if c]
+    others = [c for c in codes if _canon(c) != _canon(my_code)]
+    # If my own code was not read cleanly it cannot be told apart from the
+    # crewmate's, so show the whole cell rather than guess.
+    return others if len(others) < len(codes) else codes
+
+
 def _canon(code: str) -> str:
     code = re.sub(r"[^A-Z0-9]", "", code.upper()).replace("VV", "W")
     return code.translate(_CONFUSIONS)
