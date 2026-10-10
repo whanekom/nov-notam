@@ -40,6 +40,8 @@ CREW_CODE = os.environ.get("CREW_CODE", "WIHAN").strip().upper()
 SUBJECT_WORDS = "flying programme"
 DONE_LABEL = "programme-alert-sent"
 LOOKBACK_DAYS = 3
+# Other people's crew codes are left out of the message unless this is switched on.
+SHOW_CREW = os.environ.get("SHOW_CREW", "").strip().lower() in ("1", "true", "yes")
 FOOTER = "Details subject to change - the Ops email is the authority."
 
 
@@ -127,30 +129,46 @@ def nice_date(d: dt.date | None) -> str:
     return d.strftime("%a %d %b").replace(" 0", " ") if d else "(date not found)"
 
 
-def format_line(row: dict) -> str:
+def line_title(row: dict) -> str:
     if row["std"]:
-        title = f"STD {row['std']} {row['route']}".strip()
-    else:
-        title = row["report"] or row["route"] or "Duty"
-    out = [f"*{title}*"]
+        return f"STD {row['std']} {row['route']}".strip()
+    return row["report"] or row["route"] or "Duty"
+
+
+def format_line(row: dict) -> str:
+    """One programme line as WhatsApp text: the duty itself, nobody else's code."""
+    import programme
+
+    out = [f"*{line_title(row)}*"]
     if row["std"] and row["report"]:
-        out.append(f"Report: {row['report']}")
+        mine = programme.own_report(row, CREW_CODE)
+        if mine != row["report"]:  # the cell lists one report time per pilot
+            out.append(f"Report: {mine} (cell shows {row['report']})")
+        else:
+            out.append(f"Report: {row['report']}")
     if row["aircraft"]:
         out.append(f"Aircraft: {row['aircraft']}")
     if row["callsign"]:
         out.append(f"Callsign: {row['callsign']}")
-    out.append(f"Crew: {row['crew']}")
+    if SHOW_CREW:
+        out.append(f"Crew: {row['crew']}")
     if row["remarks"]:
         out.append(f"Remarks: {row['remarks']}")
     if row.get("crew_inherited"):
         out.append("(Crew cell blank on this line - assumed same crew as the line above.)")
+    if row.get("crew_doubt"):
+        out.append("(The crew cell on this line was hard to read.)")
     if row.get("doubts"):
         out.append("(Hard to read: " + "; ".join(row["doubts"]) + ")")
     return "\n".join(out)
 
 
 def build_message(table: dict, subject_date: dt.date | None, updated: bool = False) -> str:
-    """Turn a parsed programme into the WhatsApp text for CREW_CODE."""
+    """Turn a parsed programme into the WhatsApp text for CREW_CODE.
+
+    The message answers one question - is CREW_CODE on the programme - and
+    gives only that person's own lines. No other crew are listed.
+    """
     import programme  # imported here so --peek needs no OCR libraries
 
     image_date = parse_programme_date(table.get("date") or "")
@@ -166,25 +184,29 @@ def build_message(table: dict, subject_date: dt.date | None, updated: bool = Fal
             f"{image_date:%d/%m/%y}. Check the Ops email."
         )
 
-    mine, maybe = programme.find_duties(table["rows"], CREW_CODE)
+    mine, maybe, mentions = programme.find_duties(table["rows"], CREW_CODE)
     if mine:
         count = "1 line" if len(mine) == 1 else f"{len(mine)} lines"
-        parts.append(f"{CREW_CODE} is on {count}:")
+        parts.append(f"{CREW_CODE} is on the programme ({count}):")
         parts.extend(format_line(r) for r in mine)
     else:
         parts.append(f"{CREW_CODE} is not on the programme.")
+    for r in mentions:  # named in the remarks of a line flown by others
+        note = r["remarks"] or r["report"]
+        parts.append(f"{CREW_CODE} is mentioned on the {line_title(r)} line: {note}")
     if maybe:
         parts.append(
-            "WARNING: possible match - a similar code appears on the line(s) below. "
-            "Check the Ops email."
+            f"WARNING: a code very close to {CREW_CODE} is on the line(s) below - "
+            "a typo or a misread. Check the Ops email."
         )
         parts.extend(format_line(r) for r in maybe)
-    if not mine:
-        codes = programme.crew_codes(table["rows"])
-        parts.append("Crew read from the table: " + (", ".join(codes) or "none"))
-        if table.get("doubts"):
-            parts.append("Hard to read: " + "; ".join(table["doubts"]))
-    parts.append(FOOTER)
+    elif not mine and table.get("doubts"):
+        # Picture days only: say so when the answer rests on an unclear read.
+        parts.append(
+            "WARNING: some crew codes in the picture were hard to read. Check the Ops email."
+        )
+    if mine or maybe or mentions:
+        parts.append(FOOTER)
     return "\n\n".join(parts)
 
 
