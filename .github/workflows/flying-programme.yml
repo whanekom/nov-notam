@@ -3,13 +3,15 @@ name: Flying programme alert
 # Reads the evening NHV Ops "Flying Programme" email from Gmail and sends the
 # lines for one crew code to WhatsApp. Code and notes: flying_programme/
 #
-# Times are UTC. The email usually lands around 16:30-17:15 UK time, so check
-# every 15 minutes through the late afternoon and hourly after that.
+# Checks every 30 minutes between 18:00 and 20:00 UK time.
+# GitHub's timer only works in UTC, so the times below cover both summer
+# (BST) and winter (GMT); the "UK time window" step then drops any run that
+# lands outside 18:00-20:59 UK. Minutes 2 and 32 are used because GitHub's
+# timer is at its slowest exactly on the hour and half hour.
 on:
   schedule:
-    - cron: "*/15 15-18 * * *"
-    - cron: "0 19-21 * * *"
-    - cron: "30 20 * * *"   # once a day: warn if no programme email has arrived
+    - cron: "2,32 17-19 * * *"
+    - cron: "2 20 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -36,12 +38,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Until the WhatsApp secrets exist, skip quietly instead of failing
-      # every 15 minutes.
+      # Scheduled runs only do anything between 18:00 and 20:59 UK time.
+      # A run started by hand always goes ahead.
+      - name: UK time window
+        id: window
+        run: |
+          hour=$(TZ=Europe/London date +%-H)
+          minute=$(TZ=Europe/London date +%-M)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || { [ "$hour" -ge 18 ] && [ "$hour" -le 20 ]; }; then
+            echo "open=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Outside 18:00-20:59 UK time - nothing to do."
+            echo "open=false" >> "$GITHUB_OUTPUT"
+          fi
+          # The 20:00 check is the last proper one of the evening.
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$hour" -eq 20 ] && [ "$minute" -lt 30 ]; then
+            echo "last=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "last=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Until the WhatsApp secrets exist, skip quietly instead of failing.
       - name: Check the secrets are set
         id: config
         run: |
-          if [ -z "$GMAIL_USER" ] || [ -z "$GMAIL_APP_PASSWORD" ] || [ -z "$WHATSAPP_PHONE" ] || [ -z "$CALLMEBOT_APIKEY" ]; then
+          if [ "${{ steps.window.outputs.open }}" != "true" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          elif [ -z "$GMAIL_USER" ] || [ -z "$GMAIL_APP_PASSWORD" ] || [ -z "$WHATSAPP_PHONE" ] || [ -z "$CALLMEBOT_APIKEY" ]; then
             echo "::warning::Not set up yet - add the WHATSAPP_PHONE and CALLMEBOT_APIKEY secrets (see flying_programme/README.md)."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
@@ -72,5 +95,5 @@ jobs:
         run: python alert.py
 
       - name: Warn if no programme email arrived today
-        if: steps.config.outputs.ready == 'true' && github.event.schedule == '30 20 * * *'
+        if: steps.config.outputs.ready == 'true' && steps.window.outputs.last == 'true'
         run: python alert.py --check-missing
