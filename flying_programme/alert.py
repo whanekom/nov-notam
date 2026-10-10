@@ -64,15 +64,22 @@ def send_whatsapp(text: str, dry_run: bool = False) -> None:
     for attempt in range(3):
         try:
             with urllib.request.urlopen(url, timeout=60) as resp:
-                body = resp.read().decode("utf-8", "replace")
-                if resp.status == 200 and "invalid" not in body.lower():
-                    print("WhatsApp message accepted by CallMeBot.")
-                    return
-                last_error = f"HTTP {resp.status}: {body[:200]}"
+                status, body = resp.status, resp.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as exc:
-            last_error = f"HTTP {exc.code}: {exc.read().decode('utf-8', 'replace')[:200]}"
+            status, body = exc.code, exc.read().decode("utf-8", "replace")
         except OSError as exc:
-            last_error = str(exc)
+            status, body = None, str(exc)
+        # CallMeBot echoes the message first and puts its verdict at the end,
+        # so the end of the reply is the part worth reading and logging.
+        verdict = re.sub(r"<[^>]+>", " ", body)
+        verdict = re.sub(r"\s+", " ", verdict).strip()[-300:]
+        if status is not None and "queued" in body.lower():
+            print(f"WhatsApp message accepted by CallMeBot (HTTP {status}).")
+            return
+        last_error = f"HTTP {status}: ...{verdict}"
+        print(f"CallMeBot attempt {attempt + 1} not accepted: {last_error}")
+        if re.search(r"apikey|api key|not allowed|not activated|paused", body, re.I):
+            break  # a set-up problem; trying again will not help
         time.sleep(20 * (attempt + 1))
     raise RuntimeError(f"WhatsApp send failed: {last_error}")
 
