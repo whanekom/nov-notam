@@ -128,25 +128,77 @@ def wait_for_use_enabled(page, timeout_ms=8000) -> bool:
         return False
 
 
-def select_saved_briefing(page):
-    log.info("Looking for a briefing matching %r", BRIEFING_MATCH)
+# The briefing list only shows the last week unless its "Valid from" filter
+# is widened. After a break of more than a week (the job was paused, or the
+# site was down) the saved briefing drops out of that view, so look further
+# back, one step at a time, until it turns up.
+VALID_FROM_STEPS = ["LAST_MONTH", "LAST_THREE_MONTHS", "LAST_YEAR", "ALL"]
 
+
+def widen_valid_from(page, value: str) -> bool:
+    """Set the list's "Valid from" filter. Returns False if it is not there."""
+    changed = page.evaluate(
+        """(value) => {
+            const header = [...document.querySelectorAll('th')].find((th) =>
+                /valid from/i.test(th.getAttribute('aria-label') || th.textContent || ''));
+            const select = header && header.querySelector('select');
+            if (!select || ![...select.options].some((o) => o.value === value)) return false;
+            select.value = value;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+        }""",
+        value,
+    )
+    if changed:
+        try:
+            page.wait_for_load_state("networkidle", timeout=TIMEOUT)
+        except PlaywrightTimeout:
+            pass
+        page.wait_for_timeout(2000)
+    return bool(changed)
+
+
+def find_matching_row(page, pattern):
+    """(index of the newest matching row or None, number of rows shown)."""
     rows = page.locator("tr[data-ri]")
     count = rows.count()
     log.info("Found %d row(s) in the briefing list", count)
     for i in range(min(count, 10)):
         log.info("  row %d: %s", i, rows.nth(i).inner_text().replace("\n", " | ")[:160])
+    for i in range(count):
+        if pattern.search(rows.nth(i).inner_text()):
+            return i, count
+    return None, count
+
+
+def select_saved_briefing(page):
+    log.info("Looking for a briefing matching %r", BRIEFING_MATCH)
+    pattern = re.compile(re.escape(BRIEFING_MATCH), re.IGNORECASE)
+
+    target_index, count = find_matching_row(page, pattern)
+    widened = False
+    if target_index is None:
+        for value in VALID_FROM_STEPS:
+            log.info("No match in this view - widening 'Valid from' to %s", value)
+            if not widen_valid_from(page, value):
+                log.warning("Could not find the 'Valid from' filter on the page")
+                break
+            widened = True
+            target_index, count = find_matching_row(page, pattern)
+            if target_index is not None:
+                break
 
     if count == 0:
         raise RuntimeError("No rows found in the briefing list.")
+    if target_index is None:
+        if widened:
+            raise RuntimeError(
+                f"No saved briefing matching {BRIEFING_MATCH!r} in the Briefing Handbook, "
+                "even looking back as far as it goes. It may need saving again on the NATS site."
+            )
+        target_index = 0
 
-    pattern = re.compile(re.escape(BRIEFING_MATCH), re.IGNORECASE)
-    target_index = 0
-    for i in range(count):
-        if pattern.search(rows.nth(i).inner_text()):
-            target_index = i
-            break
-
+    rows = page.locator("tr[data-ri]")
     log.info("Selecting row %d (newest match)", target_index)
     rows.nth(target_index).locator("td").first.click()
 
