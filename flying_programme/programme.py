@@ -21,14 +21,16 @@ except ImportError:  # pragma: no cover
     cv2 = np = pytesseract = None
 
 COLUMNS = ["crew", "report", "std", "route", "aircraft", "callsign", "remarks"]
+# Header labels seen in the Ops emails. Some days crew and report time share
+# one column ("CREW AND CREW REPORT"); other days they are separate.
 HEADER_NAMES = {
-    "crew": "CREW",
-    "report": "CREW REPORT",
-    "std": "STD (L)",
-    "route": "ROUTE",
-    "aircraft": "AIRCRAFT",
-    "callsign": "CALLSIGN",
-    "remarks": "REMARKS",
+    "crew": ["CREW", "CREW AND CREW REPORT"],
+    "report": ["CREW REPORT"],
+    "std": ["STD (L)", "STD LOCAL", "STD"],
+    "route": ["ROUTE"],
+    "aircraft": ["AIRCRAFT"],
+    "callsign": ["CALLSIGN"],
+    "remarks": ["REMARKS", "PAX/REMARKS"],
 }
 TARGET_WIDTH = 3900  # upscale so the small spreadsheet text is big enough to OCR
 
@@ -127,7 +129,8 @@ def read_programme(image_bytes: bytes) -> dict:
 
     Returns {"date": str|None, "rows": [...], "ops": [...], "doubts": [...]}.
     Each row is a dict with the keys in COLUMNS plus its own "doubts" (cells
-    the two OCR passes read differently). The top-level "doubts" lists only
+    the two OCR passes read differently) and "crew_doubt" (True when the crew
+    cell itself was unclear). The top-level "doubts" lists only
     doubtful crew cells, which matter even on lines that are not yours.
     Raises ProgrammeReadError if the picture is not the programme table.
     """
@@ -188,9 +191,18 @@ def _rows_from_grid(grid: list[list[str]], alt_grid: list[list[str]] | None = No
     """
     from_ocr = alt_grid is not None
     alt_grid = alt_grid or grid
+
+    def label_score(text: str, key: str) -> float:
+        return max(_similar(text, name) for name in HEADER_NAMES[key])
+
     header_idx = None
     for i, row in enumerate(grid):
-        if sum(1 for c in row if c) >= 4 and any(_similar(c, "CREW") > 0.8 for c in row):
+        filled = [c for c in row if c]
+        if (
+            len(filled) >= 4
+            and any(label_score(c, "crew") > 0.8 for c in filled)
+            and any(label_score(c, "std") > 0.7 or label_score(c, "route") > 0.7 for c in filled)
+        ):
             header_idx = i
             break
     if header_idx is None:
@@ -199,20 +211,26 @@ def _rows_from_grid(grid: list[list[str]], alt_grid: list[list[str]] | None = No
     # Work out which column is which from the header labels, not their position.
     col_for: dict[str, int] = {}
     header = grid[header_idx]
-    for key, name in HEADER_NAMES.items():
+    for key in HEADER_NAMES:
         best, best_score = None, 0.6
         for ci, text in enumerate(header):
             if ci in col_for.values() or not text:
                 continue
-            score = _similar(text, name)
+            score = label_score(text, key)
             if score > best_score:
                 best, best_score = ci, score
         if best is not None:
             col_for[key] = best
     if "crew" not in col_for:
         raise ProgrammeReadError("could not find the CREW column")
+    # "CREW AND CREW REPORT": the report time sits in the crew cell, after the codes.
+    combined = "report" not in col_for and "REPORT" in header[col_for["crew"]]
 
     def cell(row: list[str], key: str) -> str:
+        if combined and key in ("crew", "report"):
+            idx = col_for["crew"]
+            crew, report = _split_crew_report(row[idx] if idx < len(row) else "")
+            return crew if key == "crew" else report
         idx = col_for.get(key)
         return row[idx] if idx is not None and idx < len(row) else ""
 
@@ -232,18 +250,23 @@ def _rows_from_grid(grid: list[list[str]], alt_grid: list[list[str]] | None = No
             in_ops = True
             continue
         if in_ops:
-            ops.append({"shift": rec["crew"], "name": rec["report"]})
+            others = [c for i, c in enumerate(raw) if c and i != col_for["crew"]]
+            ops.append({"shift": rec["crew"], "name": others[0] if others else ""})
             continue
         def squeeze(text: str) -> str:  # a stray space is not worth reporting
             return text.replace(" ", "")
 
+        # Doubts about the crew cell are kept apart from the rest: they name
+        # other people, so the message only says that the cell was unclear.
         rec["doubts"] = [
             f"{cell(raw, k)} or {cell(alt, k)}"
             for k in COLUMNS
-            if squeeze(cell(raw, k)) != squeeze(cell(alt, k))
+            if k != "crew" and squeeze(cell(raw, k)) != squeeze(cell(alt, k))
         ]
-        if squeeze(rec["crew"]) != squeeze(rec["crew_raw"]):
-            rec["doubts"].append(f"crew read as {rec['crew_raw']}")
+        rec["crew_doubt"] = (
+            squeeze(rec["crew"]) != squeeze(rec["crew_raw"])
+            or squeeze(rec["crew_raw"]) != squeeze(rec["crew_alt"])
+        )
         if squeeze(rec["crew_raw"]) != squeeze(rec["crew_alt"]):
             doubts.append(f"{rec['crew_raw']} or {rec['crew_alt']}")
         # A second line for the same crew is sometimes left with the crew cell blank.
@@ -379,6 +402,34 @@ def _repair_crew(text: str) -> str:
     return text
 
 
+_CREW_THEN_REST = re.compile(r"^([A-Z]{2,}(?:\s*/\s*[A-Z]{2,})*)(?:\s+(.*))?$", re.S)
+
+
+def _split_crew_report(text: str) -> tuple[str, str]:
+    """Split a combined cell such as "DAALL/JENST 10:00/06:00" into crew and report."""
+    text = text.strip()
+    m = _CREW_THEN_REST.match(text)
+    if not m:
+        return text, ""
+    return re.sub(r"\s*/\s*", "/", m.group(1)), (m.group(2) or "").strip()
+
+
+def own_report(row: dict, my_code: str) -> str:
+    """The report entry for my_code.
+
+    When the cell holds one entry per pilot in crew order ("10:00/06:00" for
+    DAALL/JENST), return just that pilot's entry; otherwise the whole cell.
+    """
+    report = row["report"]
+    codes = [c for c in re.split(r"\s*/\s*", row["crew"]) if c]
+    parts = [p.strip() for p in report.split("/")]
+    if len(codes) > 1 and len(parts) == len(codes) and all(parts):
+        for code, part in zip(codes, parts):
+            if _canon(code) == _canon(my_code):
+                return part
+    return report
+
+
 def _canon(code: str) -> str:
     code = re.sub(r"[^A-Z0-9]", "", code.upper()).replace("VV", "W")
     return code.translate(_CONFUSIONS)
@@ -403,23 +454,27 @@ def crew_codes(rows: list[dict]) -> list[str]:
     return seen
 
 
-def find_duties(rows: list[dict], my_code: str) -> tuple[list[dict], list[dict]]:
-    """Return (definite, possible) rows for my_code.
+def find_duties(rows: list[dict], my_code: str) -> tuple[list[dict], list[dict], list[dict]]:
+    """Return (mine, possible, mentions) rows for my_code.
 
-    definite: the code is on the line (allowing look-alike characters such as
-    1/I or 0/O, and a misread slash next to it). possible: a code one letter
-    away, which is either an OCR slip or a colleague with a similar code -
-    flagged for checking, never assumed.
+    mine: the code is in the crew cell (allowing look-alike characters such as
+    1/I or 0/O, and a misread slash next to it).
+    possible: a code one letter away, which is either a typo, an OCR slip or a
+    colleague with a similar code - flagged for checking, never assumed.
+    mentions: the code appears only in another cell (usually remarks) of a
+    line crewed by other people.
     """
     target = _canon(my_code)
-    definite, possible = [], []
+    mine, possible, mentions = [], [], []
     for r in rows:
         readings = [r["crew"], r.get("crew_raw", ""), r.get("crew_alt", "")]
         crew_tokens = [_canon(t) for text in readings for t in re.split(r"[/\s,&+]+", text) if t]
         other_text = " ".join(r[k] for k in COLUMNS if k != "crew")
-        other_tokens = [_canon(t) for t in re.findall(r"[A-Z0-9]+", other_text)]
-        if any(target in t for t in crew_tokens) or target in other_tokens:
-            definite.append(r)
+        other_tokens = [_canon(t) for t in re.findall(r"[A-Z0-9]+", other_text.upper())]
+        if any(target in t for t in crew_tokens):
+            mine.append(r)
         elif any(_nearly_contains(t, target) for t in crew_tokens):
             possible.append(r)
-    return definite, possible
+        elif target in other_tokens:
+            mentions.append(r)
+    return mine, possible, mentions

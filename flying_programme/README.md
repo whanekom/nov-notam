@@ -2,42 +2,45 @@
 
 Every evening this checks a Gmail inbox for the NHV Ops "Flying Programme" email, finds the lines for one crew code (WIHAN) and sends them to WhatsApp.
 
-It handles both ways Ops send the programme:
+It handles the different ways Ops send the programme:
 
-- **Table typed into the email** – read directly as text. Exact.
+- **Table typed into the email** – read directly as text. Exact. Works whether crew and report time are separate columns or share one ("CREW AND CREW REPORT").
 - **Picture of the spreadsheet** – read with OCR. Every crew cell is read twice; anything that doesn't agree, or a code one letter away from yours, is flagged in the message instead of being guessed.
 
 The Ops email stays the authority. This is a convenience copy.
 
 ## What you get
 
+The message says whether you are on the programme and gives only your own lines. No other crew are listed.
+
 On the programme:
 
 ```
 *Flying programme Sat 26 Sep*
 
-WIHAN is on 1 line:
+WIHAN is on the programme (1 line):
 
 *STD 08:00 WENH*
 Report: 07:00
 Aircraft: G-NHVV
 Callsign: GOLD651
-Crew: WIHAN/IAGOU
 
 Details subject to change - the Ops email is the authority.
 ```
 
-Not on it (the crew list is there so a misread is obvious):
+Not on it:
 
 ```
 *Flying programme Sat 10 Oct*
 
 WIHAN is not on the programme.
-
-Crew read from the table: ZOMUN, CHGUE, DAALL, ALERI, MABRO
 ```
 
-You also get a warning if the email arrives but can't be read, if a second programme arrives for the same date, or if no programme email has arrived by 20:30 UTC.
+When a line gives one report time per pilot (`10:00/06:00`), yours is picked out by your position in the crew and the full cell is shown beside it.
+
+You also get a warning if the email arrives but can't be read, if a code very close to yours appears, if a second programme arrives for the same date, or if no programme email has arrived by 20:30 UTC.
+
+To include who you are crewed with, add a repository *variable* `SHOW_CREW` set to `true`.
 
 ## Setup
 
