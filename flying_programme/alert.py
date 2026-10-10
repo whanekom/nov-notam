@@ -136,22 +136,22 @@ def line_title(row: dict) -> str:
     return row["report"] or row["route"] or "Duty"
 
 
-def format_line(row: dict, mine: bool = True) -> str:
+def format_line(row: dict, own_line: bool = True) -> str:
     """One programme line as WhatsApp text: the duty itself, nobody else's code."""
     import programme
 
     out = [f"*{line_title(row)}*"]
     if row["std"] and row["report"]:
-        mine = programme.own_report(row, CREW_CODE)
-        if mine != row["report"]:  # the cell lists one report time per pilot
-            out.append(f"Report: {mine} (cell shows {row['report']})")
+        own = programme.own_report(row, CREW_CODE) if own_line else row["report"]
+        if own != row["report"]:  # the cell lists one report time per pilot
+            out.append(f"Report: {own} (cell shows {row['report']})")
         else:
             out.append(f"Report: {row['report']}")
     if row["aircraft"]:
         out.append(f"Aircraft: {row['aircraft']}")
     if row["callsign"]:
         out.append(f"Callsign: {row['callsign']}")
-    if not mine:  # a line shown only because its crew cell needs checking
+    if not own_line:  # a line shown only because its crew cell needs checking
         out.append(f"Crew as read: {row['crew']}")
     elif SHOW_CREW:
         mates = programme.crewmates(row, CREW_CODE)
@@ -204,7 +204,7 @@ def build_message(table: dict, subject_date: dt.date | None, updated: bool = Fal
             f"WARNING: a code very close to {CREW_CODE} is on the line(s) below - "
             "a typo or a misread. Check the Ops email."
         )
-        parts.extend(format_line(r, mine=False) for r in maybe)
+        parts.extend(format_line(r, own_line=False) for r in maybe)
     elif not mine and table.get("doubts"):
         # Picture days only: say so when the answer rests on an unclear read.
         parts.append(
