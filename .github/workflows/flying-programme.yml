@@ -7,12 +7,13 @@ name: Flying programme alert
 #
 # Two timers start it:
 #   1. An outside timer (a Claude scheduled task) starts a run with
-#      "timed" switched on at 18:02, 18:32, 19:02, 19:32 and 20:02 UK.
-#      This is the one to rely on.
-#   2. GitHub's own timer, below, stays as a backup. It often runs late or
-#      skips a slot altogether. It only works in UTC, so the times cover
-#      both summer (BST) and winter (GMT); the "UK time window" step then
-#      drops any run that lands outside 18:00-20:59 UK.
+#      "timed" switched on at 18:02, 19:02 and 20:02 UK. This is the one
+#      to rely on. It cannot run more often than once an hour.
+#   2. GitHub's own timer, below, covers the half-hour checks (18:32,
+#      19:32) and backs up the others. It often runs late or skips a slot
+#      altogether. It only works in UTC, so the times cover both summer
+#      (BST) and winter (GMT); the "UK time window" step then drops any
+#      run that lands outside 18:00-20:59 UK.
 # An email is only ever sent once, whichever timer finds it first.
 on:
   schedule:
