@@ -24,7 +24,7 @@ WIHAN is on the programme (1 line):
 Report: 07:00
 Aircraft: G-ABCD
 Callsign: GOLD123
-Crewmate: Jo Bloggs (JOBLO)
+Crewmate: JOBLO
 
 Details subject to change - the Ops email is the authority.
 ```
@@ -41,16 +41,9 @@ When a line gives one report time per pilot (`10:00/06:00`), yours is picked out
 
 You also get a warning if the email arrives but can't be read, if a code very close to yours appears, if a second programme arrives for the same date, or if no programme email has arrived by 20:30 UTC.
 
-The crewmate is shown by code unless you supply names. To show names, add a repository **secret** called `CREW_NAMES` with one `CODE=Full Name` per line:
+The crewmate is shown by crew code only; no names are used anywhere.
 
-```
-JOBLO=Jo Bloggs
-MASMI=Mary Smith
-```
-
-Keep this list in the secret, never in a file here: it names real people, and anything in the repository (and its run logs, if the repository is public) can be read by others. Codes not in the list are shown as the code.
-
-To leave the crewmate out altogether, add a repository *variable* `SHOW_CREW` set to `false`.
+To leave the crewmate out, add a repository *variable* `SHOW_CREW` set to `false`.
 
 ## Setup
 
