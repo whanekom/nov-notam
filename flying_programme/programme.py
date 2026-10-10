@@ -378,7 +378,7 @@ def _pick(column: str, first: str, second: str) -> str:
     return first
 
 
-CODE_LEN = 5  # crew codes on the programme are five letters (ZOMUN, CHGUE ...)
+CODE_LEN = 5  # crew codes on the programme are five letters
 
 _CONFUSIONS = str.maketrans({"0": "O", "1": "I", "L": "I", "5": "S", "8": "B", "2": "Z"})
 
@@ -386,8 +386,8 @@ _CONFUSIONS = str.maketrans({"0": "O", "1": "I", "L": "I", "5": "S", "8": "B", "
 def _repair_crew(text: str) -> str:
     """Put back a slash the OCR lost or misread between two five-letter codes.
 
-    "ZOMUNMWIHAN" (slash read as a letter) and "ZOMUNWIHAN" (slash dropped)
-    both become "ZOMUN/WIHAN". Anything else is returned unchanged.
+    "ABCDEMFGHIJ" (slash read as a letter) and "ABCDEFGHIJ" (slash dropped)
+    both become "ABCDE/FGHIJ". Anything else is returned unchanged.
     """
     text = re.sub(r"\s*/\s*", "/", text.strip())
     squeezed = text.replace(" ", "")
@@ -406,7 +406,7 @@ _CREW_THEN_REST = re.compile(r"^([A-Z]{2,}(?:\s*/\s*[A-Z]{2,})*)(?:\s+(.*))?$", 
 
 
 def _split_crew_report(text: str) -> tuple[str, str]:
-    """Split a combined cell such as "DAALL/JENST 10:00/06:00" into crew and report."""
+    """Split a combined cell such as "ABCDE/FGHIJ 10:00/06:00" into crew and report."""
     text = text.strip()
     m = _CREW_THEN_REST.match(text)
     if not m:
@@ -418,7 +418,7 @@ def own_report(row: dict, my_code: str) -> str:
     """The report entry for my_code.
 
     When the cell holds one entry per pilot in crew order ("10:00/06:00" for
-    DAALL/JENST), return just that pilot's entry; otherwise the whole cell.
+    ABCDE/FGHIJ), return just that pilot's entry; otherwise the whole cell.
     """
     report = row["report"]
     codes = [c for c in re.split(r"\s*/\s*", row["crew"]) if c]
