@@ -4,15 +4,26 @@ name: Flying programme alert
 # lines for one crew code to WhatsApp. Code and notes: flying_programme/
 #
 # Checks every 30 minutes between 18:00 and 20:00 UK time.
-# GitHub's timer only works in UTC, so the times below cover both summer
-# (BST) and winter (GMT); the "UK time window" step then drops any run that
-# lands outside 18:00-20:59 UK. Minutes 2 and 32 are used because GitHub's
-# timer is at its slowest exactly on the hour and half hour.
+#
+# Two timers start it:
+#   1. An outside timer (a Claude scheduled task) starts a run with
+#      "timed" switched on at 18:02, 18:32, 19:02, 19:32 and 20:02 UK.
+#      This is the one to rely on.
+#   2. GitHub's own timer, below, stays as a backup. It often runs late or
+#      skips a slot altogether. It only works in UTC, so the times cover
+#      both summer (BST) and winter (GMT); the "UK time window" step then
+#      drops any run that lands outside 18:00-20:59 UK.
+# An email is only ever sent once, whichever timer finds it first.
 on:
   schedule:
     - cron: "2,32 17-19 * * *"
     - cron: "2 20 * * *"
   workflow_dispatch:
+    inputs:
+      timed:
+        description: "Started by the outside timer (leave off when running by hand)"
+        type: boolean
+        default: false
 
 concurrency:
   group: flying-programme
@@ -41,21 +52,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Scheduled runs only do anything between 18:00 and 20:59 UK time.
+      # Timer-started runs only do anything between 18:00 and 20:59 UK time.
       # A run started by hand always goes ahead.
       - name: UK time window
         id: window
+        env:
+          EVENT: ${{ github.event_name }}
+          TIMED: ${{ inputs.timed }}
         run: |
           hour=$(TZ=Europe/London date +%-H)
           minute=$(TZ=Europe/London date +%-M)
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || { [ "$hour" -ge 18 ] && [ "$hour" -le 20 ]; }; then
+          by_hand=false
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$TIMED" != "true" ]; then
+            by_hand=true
+          fi
+          if [ "$by_hand" = "true" ] || { [ "$hour" -ge 18 ] && [ "$hour" -le 20 ]; }; then
             echo "open=true" >> "$GITHUB_OUTPUT"
           else
             echo "Outside 18:00-20:59 UK time - nothing to do."
             echo "open=false" >> "$GITHUB_OUTPUT"
           fi
-          # The 20:00 check is the last proper one of the evening.
-          if [ "${{ github.event_name }}" = "schedule" ] && [ "$hour" -eq 20 ] && [ "$minute" -lt 30 ]; then
+          # The 20:00 check is the last proper one of the evening. Only the
+          # outside timer's run gives the "no email today" warning, so the
+          # backup timer cannot send it a second time.
+          if [ "$TIMED" = "true" ] && [ "$hour" -eq 20 ] && [ "$minute" -lt 30 ]; then
             echo "last=true" >> "$GITHUB_OUTPUT"
           else
             echo "last=false" >> "$GITHUB_OUTPUT"
