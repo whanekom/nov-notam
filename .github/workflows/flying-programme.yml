@@ -33,8 +33,6 @@ jobs:
       # Your own lines show your crewmate's code. Set a repository variable
       # SHOW_CREW=false to leave that out.
       SHOW_CREW: ${{ vars.SHOW_CREW }}
-      # Optional secret: "CODE=Full Name" lines, to show crewmates by name.
-      CREW_NAMES: ${{ secrets.CREW_NAMES }}
     steps:
       - uses: actions/checkout@v4
 

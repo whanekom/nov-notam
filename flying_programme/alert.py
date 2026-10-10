@@ -17,7 +17,6 @@ Settings come from environment variables (GitHub Actions secrets):
   GMAIL_USER, GMAIL_APP_PASSWORD   mailbox the programme is forwarded to
   WHATSAPP_PHONE, CALLMEBOT_APIKEY where to send the message
   CREW_CODE                        whose lines to send (defaults to WIHAN)
-  CREW_NAMES                       optional "CODE=Full Name" list for crewmates
 """
 
 from __future__ import annotations
@@ -46,28 +45,6 @@ LOOKBACK_DAYS = 3
 SHOW_CREW = os.environ.get("SHOW_CREW", "").strip().lower() not in ("0", "false", "no")
 FOOTER = "Details subject to change - the Ops email is the authority."
 
-
-def _load_crew_names() -> dict[str, str]:
-    """Crew code -> full name, from the CREW_NAMES setting.
-
-    Format: one "CODE=Full Name" per line (or separated by semicolons). It is
-    kept in a secret, not in the repository, because it names real people.
-    """
-    names = {}
-    for entry in re.split(r"[;\n]+", os.environ.get("CREW_NAMES", "")):
-        code, sep, name = entry.partition("=")
-        if sep and code.strip() and name.strip():
-            names[code.strip().upper()] = name.strip()
-    return names
-
-
-CREW_NAMES = _load_crew_names()
-
-
-def crew_label(code: str) -> str:
-    """ "Full Name (CODE)" when the name is known, otherwise just the code."""
-    name = CREW_NAMES.get(code.upper())
-    return f"{name} ({code})" if name else code
 
 
 # --------------------------------------------------------------------------
@@ -198,7 +175,7 @@ def format_line(row: dict, own_line: bool = True) -> str:
     elif SHOW_CREW:
         mates = programme.crewmates(row, CREW_CODE)
         if mates:
-            out.append("Crewmate: " + ", ".join(crew_label(m) for m in mates))
+            out.append(f"Crewmate: {', '.join(mates)}")
     if row["remarks"]:
         out.append(f"Remarks: {row['remarks']}")
     if row.get("crew_inherited"):
