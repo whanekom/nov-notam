@@ -39,7 +39,7 @@ WIHAN is not on the programme.
 
 When a line gives one report time per pilot (`10:00/06:00`), yours is picked out by your position in the crew and the full cell is shown beside it.
 
-You also get a warning if the email arrives but can't be read, if a code very close to yours appears, if a second programme arrives for the same date, or if no programme email has arrived by 20:30 UTC.
+You also get a warning if the email arrives but can't be read, if a code very close to yours appears, if a second programme arrives for the same date, or if no programme email has arrived by the 20:00 check.
 
 The crewmate is shown by crew code only; no names are used anywhere.
 
@@ -81,7 +81,7 @@ Actions tab → *Flying programme alert* → *Run workflow*. Any programme email
 
 ## How it runs
 
-- Checks every 15 minutes from 15:00 to 19:00 UTC, then hourly until 21:00 UTC. GitHub's timer can run 5–20 minutes late.
+- Checks every 30 minutes between 18:00 and 20:00 UK time (in summer there is one extra check at about 20:30). GitHub's timer can run 5–20 minutes late.
 - Each email is handled once; Gmail gets a `programme-alert-sent` label on it.
 - If WhatsApp sending fails, the run fails (GitHub emails you) and the next run tries again.
 - GitHub pauses scheduled jobs in a repository with no activity for 60 days and emails you first; re-enable from the Actions tab.
