@@ -1,6 +1,6 @@
 # Flying programme → WhatsApp
 
-Every evening this checks a Gmail inbox for the NHV Ops "Flying Programme" email, finds the lines for one crew code (WIHAN) and sends them to WhatsApp.
+Every evening this checks a Gmail inbox for the NHV Ops "Flying Programme" email, finds the lines for one crew code (WIHAN) and sends them to your phone (Pushover notification or WhatsApp).
 
 It handles the different ways Ops send the programme:
 
@@ -56,34 +56,50 @@ Either of these:
 - **Ask Ops to add the Gmail address to the distribution list.** Several people already get it on personal addresses, so this is the simplest route.
 - **Outlook rule.** Outlook on the web → Settings → Mail → Rules → Add new rule. Condition: *Subject includes* `flying programme`. Action: *Forward to* the Gmail address. Some companies block automatic forwarding outside the organisation; if the rule saves but nothing arrives, that is why.
 
-### 2. Switch on WhatsApp messages (CallMeBot)
+### 2. Choose how the alert reaches the phone
+
+The job sends by **Pushover** when its two secrets exist, and otherwise by **WhatsApp through CallMeBot**.
+
+**Pushover** (official interface; app for iPhone and Android, one-off purchase after a 30-day trial):
+
+1. Install the Pushover app and sign in. Your *user key* is on the pushover.net home page.
+2. On pushover.net choose *Create an Application/API Token*, name it (for example "Flying programme") and copy the *API token* it gives you.
+
+**WhatsApp through CallMeBot** (free, unofficial third-party service):
 
 1. Save **+34 644 20 47 56** as a contact on your phone.
 2. Send it this WhatsApp message: `I allow callmebot to send me messages`
 3. It replies with your API key.
 
-CallMeBot is a free third-party service for personal use; the message text passes through it.
+Either way the message text passes through that service.
 
-### 3. Add two secrets
+### 3. Add the secrets
 
 Repository → Settings → Secrets and variables → Actions → *New repository secret*:
 
 | Secret | Value |
 | --- | --- |
-| `WHATSAPP_PHONE` | your mobile with country code, e.g. `+447...` |
-| `CALLMEBOT_APIKEY` | the key from step 2 |
+| `PUSHOVER_USER_KEY` | your Pushover user key |
+| `PUSHOVER_APP_TOKEN` | the API token of the application you created |
 
-Until both exist the job skips itself with a warning instead of failing. The crew code defaults to WIHAN; to change it, add a repository *variable* called `CREW_CODE`.
+or, for WhatsApp:
+
+| Secret | Value |
+| --- | --- |
+| `WHATSAPP_PHONE` | your mobile with country code, digits only |
+| `CALLMEBOT_APIKEY` | the key CallMeBot sent you |
+
+Until one pair exists the job skips itself with a warning instead of failing. The crew code defaults to WIHAN; to change it, add a repository *variable* called `CREW_CODE`.
 
 ### 4. Test it
 
-Actions tab → *Flying programme alert* → *Run workflow*. Any programme email in Gmail for today or later that hasn't been sent yet gets processed, and the WhatsApp arrives within a minute.
+Actions tab → *Flying programme alert* → *Run workflow*, tick *Also send a short test message*, and run. A test message arrives within a minute, and any programme email in Gmail for today or later that hasn't been sent yet is processed as well.
 
 ## How it runs
 
 - Checks between 18:00 and 20:00 UK time. A Claude scheduled task starts the checks at 18:02, 19:02 and 20:02 (once an hour is the most it allows). GitHub's own timer covers the half-hour checks (18:32, 19:32) and backs up the others, but it can run late or skip a slot. The "no programme email today" warning comes from the 20:02 check started by the scheduled task.
 - Each email is handled once: it gets a `programme-alert-sent` label and is then moved to Gmail's Trash, which Gmail empties after 30 days. An email that could not be read is left in place. To keep handled emails, add a repository *variable* `KEEP_EMAILS` set to `true`.
-- If WhatsApp sending fails, the run fails (GitHub emails you) and the next run tries again.
+- If sending fails, the run fails (GitHub emails you) and the next run tries again.
 - GitHub pauses scheduled jobs in a repository with no activity for 60 days and emails you first; re-enable from the Actions tab.
 
 ## Run it by hand

@@ -11,11 +11,13 @@ Usage
   python alert.py --peek          only report whether there is a new email
   python alert.py --check-missing warn if no programme email arrived today
   python alert.py --eml FILE      run against a saved .eml file (prints only)
+  python alert.py --test          send a short test message
   add --dry-run to print the WhatsApp text instead of sending it
 
 Settings come from environment variables (GitHub Actions secrets):
   GMAIL_USER, GMAIL_APP_PASSWORD   mailbox the programme is forwarded to
-  WHATSAPP_PHONE, CALLMEBOT_APIKEY where to send the message
+  PUSHOVER_APP_TOKEN, PUSHOVER_USER_KEY  send as a Pushover notification, or
+  WHATSAPP_PHONE, CALLMEBOT_APIKEY       send as a WhatsApp through CallMeBot
   CREW_CODE                        whose lines to send (defaults to WIHAN)
   KEEP_EMAILS                      true = do not move handled emails to Trash
 """
@@ -74,13 +76,8 @@ def _verdict_only(body: str, message: str) -> str:
     return plain
 
 
-def send_whatsapp(text: str, dry_run: bool = False) -> None:
+def send_whatsapp(text: str) -> None:
     """Send a WhatsApp message to yourself through CallMeBot."""
-    if dry_run:
-        print("----- WhatsApp message (not sent) -----")
-        print(text)
-        print("---------------------------------------")
-        return
     query = urllib.parse.urlencode({
         "phone": os.environ["WHATSAPP_PHONE"],
         "text": text,
@@ -108,6 +105,96 @@ def send_whatsapp(text: str, dry_run: bool = False) -> None:
             break  # a set-up problem; trying again will not help
         time.sleep(20 * (attempt + 1))
     raise RuntimeError(f"WhatsApp send failed: {last_error}")
+
+
+PUSHOVER_LIMIT = 1000  # Pushover allows 1024 characters per message
+
+
+def pushover_parts(text: str) -> tuple[str, list[str]]:
+    """Turn the alert text into a Pushover title and one or more message bodies.
+
+    The first line becomes the notification title. *bold* becomes <b>bold</b>.
+    Anything longer than Pushover's limit is split between paragraphs.
+    """
+    paragraphs = text.strip().split("\n\n")
+    first_lines = paragraphs[0].split("\n")
+    title = first_lines[0].strip().strip("*").strip() or "Flying programme"
+    rest = ["\n".join(first_lines[1:])] if len(first_lines) > 1 else []
+    body_paragraphs = [p for p in rest + paragraphs[1:] if p.strip()] or [title]
+
+    def to_html(paragraph: str) -> str:
+        safe = paragraph.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return re.sub(r"\*([^*\n]+)\*", r"<b>\1</b>", safe)
+
+    bodies, current = [], ""
+    for paragraph in map(to_html, body_paragraphs):
+        while len(paragraph) > PUSHOVER_LIMIT:  # one huge paragraph: cut it
+            bodies.append(paragraph[:PUSHOVER_LIMIT])
+            paragraph = paragraph[PUSHOVER_LIMIT:]
+        joined = f"{current}\n\n{paragraph}" if current else paragraph
+        if len(joined) > PUSHOVER_LIMIT:
+            bodies.append(current)
+            current = paragraph
+        else:
+            current = joined
+    if current:
+        bodies.append(current)
+    return title[:250], bodies
+
+
+def send_pushover(text: str) -> None:
+    """Send the alert as a Pushover notification (official Pushover API)."""
+    title, bodies = pushover_parts(text)
+    for index, body in enumerate(bodies, start=1):
+        part_title = title if len(bodies) == 1 else f"{title} ({index}/{len(bodies)})"
+        data = urllib.parse.urlencode({
+            "token": os.environ["PUSHOVER_APP_TOKEN"],
+            "user": os.environ["PUSHOVER_USER_KEY"],
+            "title": part_title,
+            "message": body,
+            "html": "1",
+        }).encode()
+        last_error = "unknown error"
+        for attempt in range(3):
+            try:
+                request = urllib.request.Request(
+                    "https://api.pushover.net/1/messages.json", data=data, method="POST"
+                )
+                with urllib.request.urlopen(request, timeout=60) as resp:
+                    status, reply = resp.status, resp.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as exc:
+                status, reply = exc.code, exc.read().decode("utf-8", "replace")
+            except OSError as exc:
+                status, reply = None, str(exc)
+            if status == 200 and '"status":1' in reply.replace(" ", ""):
+                print(f"Pushover accepted the notification ({index} of {len(bodies)}).")
+                break
+            # Pushover's error text names the problem (bad key, quota) and
+            # never repeats the message, so it is safe to log.
+            errors = re.search(r'"errors"\s*:\s*\[(.*?)\]', reply or "", re.S)
+            last_error = f"HTTP {status}: {errors.group(1) if errors else 'no readable reason'}"[:300]
+            print(f"Pushover attempt {attempt + 1} not accepted: {last_error}")
+            if status is not None and 400 <= status < 500:
+                raise RuntimeError(f"Pushover send failed: {last_error}")  # retrying cannot help
+            time.sleep(10 * (attempt + 1))
+        else:
+            raise RuntimeError(f"Pushover send failed: {last_error}")
+
+
+def send_message(text: str, dry_run: bool = False) -> None:
+    """Send the alert by whichever service is set up: Pushover if its two
+    settings exist, otherwise WhatsApp through CallMeBot."""
+    if dry_run:
+        print("----- Message (not sent) -----")
+        print(text)
+        print("------------------------------")
+        return
+    if os.environ.get("PUSHOVER_APP_TOKEN") and os.environ.get("PUSHOVER_USER_KEY"):
+        send_pushover(text)
+    elif os.environ.get("WHATSAPP_PHONE") and os.environ.get("CALLMEBOT_APIKEY"):
+        send_whatsapp(text)
+    else:
+        raise RuntimeError("No way to send: neither Pushover nor WhatsApp is set up.")
 
 
 # --------------------------------------------------------------------------
@@ -462,7 +549,7 @@ def cmd_process(dry_run: bool) -> int:
                 raw, updated=date is not None and date in sent_dates
             )
             if text:
-                send_whatsapp(text, dry_run)
+                send_message(text, dry_run)
             if not dry_run:
                 mark_done(imap, item["uid"])
                 # An email that could not be read stays put, so it can be looked at.
@@ -484,7 +571,7 @@ def cmd_check_missing(dry_run: bool) -> int:
     if any(e["received"].date() == now.date() for e in emails):
         print("A programme email arrived today.")
         return 0
-    send_whatsapp(
+    send_message(
         f"*Flying programme*\n\nWARNING: no programme email has reached the alert mailbox "
         f"today (checked {now:%H:%M} UK). Check Outlook - the forwarding may have stopped.",
         dry_run,
@@ -496,7 +583,7 @@ def cmd_eml(path: str) -> int:
     with open(path, "rb") as fh:
         text, _ = message_for_email(fh.read(), any_date=True)
     if text:
-        send_whatsapp(text, dry_run=True)
+        send_message(text, dry_run=True)
     else:
         print("(no message would be sent for this email)")
     return 0
@@ -507,11 +594,17 @@ def main() -> int:
     parser.add_argument("--peek", action="store_true")
     parser.add_argument("--check-missing", action="store_true")
     parser.add_argument("--eml", metavar="FILE")
+    parser.add_argument("--test", action="store_true", help="send a short test message")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     dry_run = args.dry_run or os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
     if args.eml:
         return cmd_eml(args.eml)
+    if args.test:
+        send_message(
+            "*Flying programme alert*\n\nTest message - the alert can reach this phone.", dry_run
+        )
+        return 0
     if args.peek:
         return cmd_peek()
     if args.check_missing:

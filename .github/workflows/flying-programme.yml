@@ -25,6 +25,10 @@ on:
         description: "Started by the outside timer (leave off when running by hand)"
         type: boolean
         default: false
+      test:
+        description: "Also send a short test message to the phone"
+        type: boolean
+        default: false
 
 concurrency:
   group: flying-programme
@@ -41,6 +45,10 @@ jobs:
       # Same Gmail login the NOTAM job already uses to send mail.
       GMAIL_USER: ${{ secrets.SMTP_USER }}
       GMAIL_APP_PASSWORD: ${{ secrets.SMTP_PASS }}
+      # The alert goes by Pushover when its two secrets exist; otherwise by
+      # WhatsApp through CallMeBot.
+      PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+      PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
       WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
       CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
       CREW_CODE: ${{ vars.CREW_CODE || 'WIHAN' }}
@@ -88,8 +96,11 @@ jobs:
         run: |
           if [ "${{ steps.window.outputs.open }}" != "true" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
-          elif [ -z "$GMAIL_USER" ] || [ -z "$GMAIL_APP_PASSWORD" ] || [ -z "$WHATSAPP_PHONE" ] || [ -z "$CALLMEBOT_APIKEY" ]; then
-            echo "::warning::Not set up yet - add the WHATSAPP_PHONE and CALLMEBOT_APIKEY secrets (see flying_programme/README.md)."
+          elif [ -z "$GMAIL_USER" ] || [ -z "$GMAIL_APP_PASSWORD" ]; then
+            echo "::warning::Not set up yet - the Gmail secrets are missing (see flying_programme/README.md)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          elif { [ -z "$PUSHOVER_APP_TOKEN" ] || [ -z "$PUSHOVER_USER_KEY" ]; } && { [ -z "$WHATSAPP_PHONE" ] || [ -z "$CALLMEBOT_APIKEY" ]; }; then
+            echo "::warning::Not set up yet - add the two Pushover secrets or the two WhatsApp secrets (see flying_programme/README.md)."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
@@ -99,6 +110,10 @@ jobs:
         if: steps.config.outputs.ready == 'true'
         with:
           python-version: "3.12"
+
+      - name: Send a test message
+        if: steps.config.outputs.ready == 'true' && inputs.test
+        run: python alert.py --test
 
       # Quick look first, so the picture-reading tools are only installed
       # on the runs where there is actually a new email to read.
@@ -114,7 +129,7 @@ jobs:
           sudo apt-get install -y -qq tesseract-ocr
           pip install -q -r requirements.txt
 
-      - name: Read the programme and send the WhatsApp
+      - name: Read the programme and send the alert
         if: steps.peek.outputs.new == 'true'
         run: python alert.py
 
