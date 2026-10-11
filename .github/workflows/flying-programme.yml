@@ -104,6 +104,12 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
+            # Say which service will be used and which secrets were found
+            # (names only), so a mistyped secret name is easy to spot.
+            token=no; [ -n "$PUSHOVER_APP_TOKEN" ] && token=yes
+            user=no; [ -n "$PUSHOVER_USER_KEY" ] && user=yes
+            via="WhatsApp (CallMeBot)"; [ "$token$user" = "yesyes" ] && via="Pushover"
+            echo "::notice::Alert goes by $via. Found PUSHOVER_APP_TOKEN: $token, PUSHOVER_USER_KEY: $user."
           fi
 
       - uses: actions/setup-python@v5
