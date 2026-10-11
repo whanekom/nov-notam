@@ -165,6 +165,23 @@ def send_pushover(text: str) -> None:
     token, user = _setting("PUSHOVER_APP_TOKEN"), _setting("PUSHOVER_USER_KEY")
     _check_pushover_value("PUSHOVER_APP_TOKEN", token)
     _check_pushover_value("PUSHOVER_USER_KEY", user)
+    # Pushover user keys start with "u" and application tokens with "a", so
+    # the two commonest mix-ups can be named without showing either value.
+    if token == user:
+        raise RuntimeError(
+            "PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY hold the same value. One of them "
+            "should be the application's API token, the other your user key."
+        )
+    if user.startswith("a") and token.startswith("u"):
+        raise RuntimeError(
+            "The two Pushover secrets look swapped: PUSHOVER_USER_KEY holds an application "
+            "token and PUSHOVER_APP_TOKEN holds a user key."
+        )
+    if not user.startswith(("u", "g")):
+        raise RuntimeError(
+            "PUSHOVER_USER_KEY does not hold a user key (those start with 'u'). "
+            "It may hold the application token instead."
+        )
     title, bodies = pushover_parts(text)
     for index, body in enumerate(bodies, start=1):
         part_title = title if len(bodies) == 1 else f"{title} ({index}/{len(bodies)})"
