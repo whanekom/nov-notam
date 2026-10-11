@@ -79,9 +79,9 @@ def _verdict_only(body: str, message: str) -> str:
 def send_whatsapp(text: str) -> None:
     """Send a WhatsApp message to yourself through CallMeBot."""
     query = urllib.parse.urlencode({
-        "phone": os.environ["WHATSAPP_PHONE"],
+        "phone": _setting("WHATSAPP_PHONE"),
         "text": text,
-        "apikey": os.environ["CALLMEBOT_APIKEY"],
+        "apikey": _setting("CALLMEBOT_APIKEY"),
     })
     url = "https://api.callmebot.com/whatsapp.php?" + query
     last_error = "unknown error"
@@ -142,14 +142,35 @@ def pushover_parts(text: str) -> tuple[str, list[str]]:
     return title[:250], bodies
 
 
+def _setting(name: str) -> str:
+    """A secret's value with stray spaces and line breaks removed (pasting on a
+    phone often adds one, and the services then reject the value)."""
+    return os.environ.get(name, "").strip()
+
+
+def _check_pushover_value(name: str, value: str) -> None:
+    """Pushover keys and tokens are exactly 30 letters and digits. Say what is
+    wrong with the shape of a value without ever showing the value itself."""
+    if re.fullmatch(r"[A-Za-z0-9]{30}", value):
+        return
+    odd = len(re.findall(r"[^A-Za-z0-9]", value))
+    raise RuntimeError(
+        f"{name} does not look like a Pushover value: it has {len(value)} characters "
+        f"({odd} of them not a letter or digit); it should be exactly 30 letters and digits."
+    )
+
+
 def send_pushover(text: str) -> None:
     """Send the alert as a Pushover notification (official Pushover API)."""
+    token, user = _setting("PUSHOVER_APP_TOKEN"), _setting("PUSHOVER_USER_KEY")
+    _check_pushover_value("PUSHOVER_APP_TOKEN", token)
+    _check_pushover_value("PUSHOVER_USER_KEY", user)
     title, bodies = pushover_parts(text)
     for index, body in enumerate(bodies, start=1):
         part_title = title if len(bodies) == 1 else f"{title} ({index}/{len(bodies)})"
         data = urllib.parse.urlencode({
-            "token": os.environ["PUSHOVER_APP_TOKEN"],
-            "user": os.environ["PUSHOVER_USER_KEY"],
+            "token": token,
+            "user": user,
             "title": part_title,
             "message": body,
             "html": "1",
@@ -191,9 +212,9 @@ def send_message(text: str, dry_run: bool = False) -> None:
         print("------------------------------")
         return
     try:
-        if os.environ.get("PUSHOVER_APP_TOKEN") and os.environ.get("PUSHOVER_USER_KEY"):
+        if _setting("PUSHOVER_APP_TOKEN") and _setting("PUSHOVER_USER_KEY"):
             send_pushover(text)
-        elif os.environ.get("WHATSAPP_PHONE") and os.environ.get("CALLMEBOT_APIKEY"):
+        elif _setting("WHATSAPP_PHONE") and _setting("CALLMEBOT_APIKEY"):
             send_whatsapp(text)
         else:
             raise RuntimeError("No way to send: neither Pushover nor WhatsApp is set up.")
