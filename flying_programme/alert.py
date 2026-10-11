@@ -158,7 +158,8 @@ def send_pushover(text: str) -> None:
         for attempt in range(3):
             try:
                 request = urllib.request.Request(
-                    "https://api.pushover.net/1/messages.json", data=data, method="POST"
+                    "https://api.pushover.net/1/messages.json", data=data, method="POST",
+                    headers={"User-Agent": "flying-programme-alert/1.0"},
                 )
                 with urllib.request.urlopen(request, timeout=60) as resp:
                     status, reply = resp.status, resp.read().decode("utf-8", "replace")
@@ -189,12 +190,19 @@ def send_message(text: str, dry_run: bool = False) -> None:
         print(text)
         print("------------------------------")
         return
-    if os.environ.get("PUSHOVER_APP_TOKEN") and os.environ.get("PUSHOVER_USER_KEY"):
-        send_pushover(text)
-    elif os.environ.get("WHATSAPP_PHONE") and os.environ.get("CALLMEBOT_APIKEY"):
-        send_whatsapp(text)
-    else:
-        raise RuntimeError("No way to send: neither Pushover nor WhatsApp is set up.")
+    try:
+        if os.environ.get("PUSHOVER_APP_TOKEN") and os.environ.get("PUSHOVER_USER_KEY"):
+            send_pushover(text)
+        elif os.environ.get("WHATSAPP_PHONE") and os.environ.get("CALLMEBOT_APIKEY"):
+            send_whatsapp(text)
+        else:
+            raise RuntimeError("No way to send: neither Pushover nor WhatsApp is set up.")
+    except RuntimeError as exc:
+        # On GitHub, put the service's own reason on the run's summary page.
+        # It never contains the message text, a key or a token.
+        if os.environ.get("GITHUB_ACTIONS"):
+            print(f"::error::{exc}")
+        raise
 
 
 # --------------------------------------------------------------------------
