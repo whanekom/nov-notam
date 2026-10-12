@@ -1,29 +1,91 @@
 name: Daily MAVIS briefing packs
 
+# Two timers start this job:
+#   1. An outside timer (a Claude scheduled task) starts it with "timed"
+#      switched on at 05:15 UK, and again at 06:15 UK in case the first
+#      attempt failed. This is the one to rely on.
+#   2. GitHub's own timer, below, is a spare. Since it was switched back on
+#      (2026-10-10) it has been running six to eight hours late.
+# The MAVIS packs is emailed once a day. A run started by either timer does
+# nothing if an earlier run already sent it that day (UK date), and
+# GitHub's timer is also ignored outside 05:30-18:00 UK. A run started by
+# hand always sends.
 on:
-  # Runs every morning at 04:30 UTC (05:30 UK in summer, 04:30 in winter).
-  # Paused 2026-09-23, switched back on 2026-10-10 at the owner's request.
   schedule:
-    - cron: "30 4 * * *"
+    - cron: "45 5 * * *"
   workflow_dispatch:
+    inputs:
+      timed:
+        description: "Started by the outside timer (leave off when running by hand)"
+        type: boolean
+        default: false
+
+# The "already sent today?" check reads this job's own run history.
+permissions:
+  contents: read
+  actions: read
+
+# One run at a time, so a second start waits and then sees the first one's result.
+concurrency:
+  group: daily-mavis
+  cancel-in-progress: false
 
 jobs:
   fetch-packs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Already sent today?
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TIMED: ${{ inputs.timed }}
+        run: |
+          send=true
+          why="started by hand"
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ] || [ "$TIMED" = "true" ]; then
+            why="nothing sent yet today"
+            now=$((10#$(TZ=Europe/London date +%H%M)))
+            # Start of today in the UK, written the way GitHub writes times.
+            since=$(date -u -d "TZ=\"Europe/London\" $(TZ=Europe/London date +%F) 00:00" +%FT%TZ)
+            api="repos/$GITHUB_REPOSITORY/actions"
+            # If the history cannot be read, send anyway: a second copy is
+            # better than no briefing.
+            ids=$(gh api "$api/workflows/daily-mavis.yml/runs?status=success&per_page=10" --jq ".workflow_runs[] | select(.created_at >= \"$since\") | .id" || true)
+            for id in $ids; do
+              # A run that stood down also ends as a success, so look for one
+              # that really did the sending step.
+              sent=$(gh api "$api/runs/$id/jobs" --jq '[.jobs[].steps[] | select(.name | startswith("Fetch ")) | .conclusion] | any(. == "success")' || true)
+              if [ "$sent" = "true" ]; then
+                send=false
+                why="already sent today"
+                break
+              fi
+            done
+            if [ "$send" = "true" ] && [ "$GITHUB_EVENT_NAME" = "schedule" ] && { [ "$now" -lt 530 ] || [ "$now" -ge 1800 ]; }; then
+              send=false
+              why="GitHub's timer ran outside 05:30-18:00 UK"
+            fi
+          fi
+          echo "send=$send" >> "$GITHUB_OUTPUT"
+          echo "::notice::Send the MAVIS packs: $send ($why)."
+
       - uses: actions/checkout@v4
+        if: steps.gate.outputs.send == 'true'
 
       - uses: actions/setup-python@v5
+        if: steps.gate.outputs.send == 'true'
         with:
           python-version: "3.12"
 
       - name: Install dependencies
+        if: steps.gate.outputs.send == 'true'
         run: |
           pip install -r requirements.txt
           playwright install --with-deps chromium
 
       - name: Fetch packs and email them
+        if: steps.gate.outputs.send == 'true'
         env:
           MAVIS_USER: ${{ secrets.MAVIS_USER }}
           MAVIS_PASS: ${{ secrets.MAVIS_PASS }}
