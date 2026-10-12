@@ -41,6 +41,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TIMED: ${{ inputs.timed }}
         run: |
+          echo "::notice::Runner: $(. /etc/os-release && echo "$PRETTY_NAME")"
           send=true
           why="started by hand"
           if [ "$GITHUB_EVENT_NAME" = "schedule" ] || [ "$TIMED" = "true" ]; then
