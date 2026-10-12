@@ -69,6 +69,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           TIMED: ${{ inputs.timed }}
         run: |
+          echo "::notice::Runner: $(. /etc/os-release && echo "$PRETTY_NAME")"
           hour=$(TZ=Europe/London date +%-H)
           minute=$(TZ=Europe/London date +%-M)
           by_hand=false
