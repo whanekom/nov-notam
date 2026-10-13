@@ -52,6 +52,10 @@ jobs:
       WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
       CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
       CREW_CODE: ${{ vars.CREW_CODE || 'WIHAN' }}
+      # Other pilots who get their own alert: a secret holding CODE=their
+      # Pushover user key, one pilot per line. Kept as a secret so their
+      # codes and keys never appear in this repository or its logs.
+      EXTRA_PILOTS: ${{ secrets.EXTRA_PILOTS }}
       # Your own lines show your crewmate's code. Set a repository variable
       # SHOW_CREW=false to leave that out.
       SHOW_CREW: ${{ vars.SHOW_CREW }}
@@ -110,7 +114,8 @@ jobs:
             token=no; [ -n "$PUSHOVER_APP_TOKEN" ] && token=yes
             user=no; [ -n "$PUSHOVER_USER_KEY" ] && user=yes
             via="WhatsApp (CallMeBot)"; [ "$token$user" = "yesyes" ] && via="Pushover"
-            echo "::notice::Alert goes by $via. Found PUSHOVER_APP_TOKEN: $token, PUSHOVER_USER_KEY: $user."
+            extra=$(printf '%s' "$EXTRA_PILOTS" | tr ',;' '\n\n' | grep -c '[^[:space:]]' || true)
+            echo "::notice::Alert goes by $via. Found PUSHOVER_APP_TOKEN: $token, PUSHOVER_USER_KEY: $user. Extra pilots: $extra."
           fi
 
       - uses: actions/setup-python@v5
