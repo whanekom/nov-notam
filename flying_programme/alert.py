@@ -19,6 +19,8 @@ Settings come from environment variables (GitHub Actions secrets):
   PUSHOVER_APP_TOKEN, PUSHOVER_USER_KEY  send as a Pushover notification, or
   WHATSAPP_PHONE, CALLMEBOT_APIKEY       send as a WhatsApp through CallMeBot
   CREW_CODE                        whose lines to send (defaults to WIHAN)
+  EXTRA_PILOTS                     other pilots who get their own alert, written
+                                   CODE=their Pushover user key, one per line
   KEEP_EMAILS                      true = do not move handled emails to Trash
 """
 
@@ -50,6 +52,60 @@ SHOW_CREW = os.environ.get("SHOW_CREW", "").strip().lower() not in ("0", "false"
 # that after 30 days). Set KEEP_EMAILS=true to leave handled emails in place.
 KEEP_EMAILS = os.environ.get("KEEP_EMAILS", "").strip().lower() in ("1", "true", "yes")
 FOOTER = "Details subject to change - the Ops email is the authority."
+# Gmail label that records who has already had the alert for an email when a
+# send to somebody else failed, so the next run only sends what is missing.
+PART_LABEL = "programme-alert-part-"
+# Mistakes found in the settings. The run carries on for everyone it can and
+# ends as failed, so the mistake shows on the run page.
+SETUP_PROBLEMS: list[str] = []
+
+
+class PermanentSendError(RuntimeError):
+    """The service refused the message for a reason that trying again cannot
+    fix (a wrong key, for instance)."""
+
+
+def _problem(text: str) -> None:
+    if text not in SETUP_PROBLEMS:
+        SETUP_PROBLEMS.append(text)
+        print(f"::error::{text}" if os.environ.get("GITHUB_ACTIONS") else text, file=sys.stderr)
+
+
+def extra_pilots() -> list[tuple[str, str]]:
+    """Other pilots who get their own alert, as (crew code, Pushover user key).
+
+    They come from the EXTRA_PILOTS setting, written CODE=key with one pilot
+    per line (commas or semicolons between pilots also work). Their codes and
+    keys exist only in that setting; neither is ever written to the log.
+    """
+    found: list[tuple[str, str]] = []
+    entries = [e.strip() for e in re.split(r"[\n,;]+", os.environ.get("EXTRA_PILOTS", ""))]
+    for number, entry in enumerate([e for e in entries if e], start=1):
+        code, _, key = re.sub(r"\s*[=:]\s*", "=", entry, count=1).partition("=")
+        code, key = code.strip().upper(), key.strip()
+        if not re.fullmatch(r"[A-Z0-9]{3,8}", code) or not key:
+            _problem(
+                f"EXTRA_PILOTS entry {number} is not written as CODE=key "
+                "(a crew code, an equals sign, then that pilot's Pushover user key)."
+            )
+        elif code == CREW_CODE or any(code == c for c, _ in found):
+            _problem(f"EXTRA_PILOTS entry {number} repeats a crew code that is already set up.")
+        else:
+            found.append((code, key))
+    return found
+
+
+def recipients() -> list[dict]:
+    """Everyone who gets an alert: the main pilot first, then any extra pilots.
+
+    "who" is how a recipient is named in the log - never an extra pilot's code.
+    """
+    people = [{"code": CREW_CODE, "user_key": None, "who": "the main pilot", "main": True}]
+    for number, (code, key) in enumerate(extra_pilots(), start=1):
+        people.append(
+            {"code": code, "user_key": key, "who": f"extra pilot {number}", "main": False}
+        )
+    return people
 
 
 
@@ -154,33 +210,39 @@ def _check_pushover_value(name: str, value: str) -> None:
     if re.fullmatch(r"[A-Za-z0-9]{30}", value):
         return
     odd = len(re.findall(r"[^A-Za-z0-9]", value))
-    raise RuntimeError(
+    raise PermanentSendError(
         f"{name} does not look like a Pushover value: it has {len(value)} characters "
         f"({odd} of them not a letter or digit); it should be exactly 30 letters and digits."
     )
 
 
-def send_pushover(text: str) -> None:
-    """Send the alert as a Pushover notification (official Pushover API)."""
-    token, user = _setting("PUSHOVER_APP_TOKEN"), _setting("PUSHOVER_USER_KEY")
+def send_pushover(text: str, user_key: str | None = None, who: str = "") -> None:
+    """Send the alert as a Pushover notification (official Pushover API).
+
+    Goes to the main pilot (PUSHOVER_USER_KEY) unless another pilot's user key
+    is given; "who" then names that pilot in any error.
+    """
+    token = _setting("PUSHOVER_APP_TOKEN")
+    user = (user_key or "").strip() or _setting("PUSHOVER_USER_KEY")
+    key_name = f"The key for {who} in EXTRA_PILOTS" if user_key else "PUSHOVER_USER_KEY"
     _check_pushover_value("PUSHOVER_APP_TOKEN", token)
-    _check_pushover_value("PUSHOVER_USER_KEY", user)
+    _check_pushover_value(key_name, user)
     # Pushover user keys start with "u" and application tokens with "a", so
     # the two commonest mix-ups can be named without showing either value.
     if token == user:
-        raise RuntimeError(
-            "PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY hold the same value. One of them "
-            "should be the application's API token, the other your user key."
+        raise PermanentSendError(
+            f"PUSHOVER_APP_TOKEN and {key_name} hold the same value. One should be the "
+            "application's API token, the other a user key."
         )
-    if user.startswith("a") and token.startswith("u"):
-        raise RuntimeError(
+    if not user_key and user.startswith("a") and token.startswith("u"):
+        raise PermanentSendError(
             "The two Pushover secrets look swapped: PUSHOVER_USER_KEY holds an application "
             "token and PUSHOVER_APP_TOKEN holds a user key."
         )
     if not user.startswith(("u", "g")):
-        raise RuntimeError(
-            "PUSHOVER_USER_KEY does not hold a user key (those start with 'u'). "
-            "It may hold the application token instead."
+        raise PermanentSendError(
+            f"{key_name} is not a user key (those start with 'u'). "
+            "It may be the application token instead."
         )
     title, bodies = pushover_parts(text)
     for index, body in enumerate(bodies, start=1):
@@ -214,22 +276,35 @@ def send_pushover(text: str) -> None:
             last_error = f"HTTP {status}: {errors.group(1) if errors else 'no readable reason'}"[:300]
             print(f"Pushover attempt {attempt + 1} not accepted: {last_error}")
             if status is not None and 400 <= status < 500:
-                raise RuntimeError(f"Pushover send failed: {last_error}")  # retrying cannot help
+                # Retrying cannot help.
+                raise PermanentSendError(f"Pushover send failed: {last_error}")
             time.sleep(10 * (attempt + 1))
         else:
             raise RuntimeError(f"Pushover send failed: {last_error}")
 
 
-def send_message(text: str, dry_run: bool = False) -> None:
+def send_message(
+    text: str, dry_run: bool = False, user_key: str | None = None, who: str = ""
+) -> None:
     """Send the alert by whichever service is set up: Pushover if its two
-    settings exist, otherwise WhatsApp through CallMeBot."""
+    settings exist, otherwise WhatsApp through CallMeBot.
+
+    With another pilot's Pushover user key the message goes to that pilot
+    instead of the main one (Pushover only).
+    """
     if dry_run:
-        print("----- Message (not sent) -----")
+        print(f"----- Message (not sent){' for ' + who if who else ''} -----")
         print(text)
         print("------------------------------")
         return
     try:
-        if _setting("PUSHOVER_APP_TOKEN") and _setting("PUSHOVER_USER_KEY"):
+        if user_key:
+            if not _setting("PUSHOVER_APP_TOKEN"):
+                raise PermanentSendError(
+                    "Extra pilots are sent to by Pushover, and PUSHOVER_APP_TOKEN is not set."
+                )
+            send_pushover(text, user_key, who)
+        elif _setting("PUSHOVER_APP_TOKEN") and _setting("PUSHOVER_USER_KEY"):
             send_pushover(text)
         elif _setting("WHATSAPP_PHONE") and _setting("CALLMEBOT_APIKEY"):
             send_whatsapp(text)
@@ -239,7 +314,7 @@ def send_message(text: str, dry_run: bool = False) -> None:
         # On GitHub, put the service's own reason on the run's summary page.
         # It never contains the message text, a key or a token.
         if os.environ.get("GITHUB_ACTIONS"):
-            print(f"::error::{exc}")
+            print(f"::error::{exc}" + (f" ({who})" if who else ""))
         raise
 
 
@@ -292,13 +367,14 @@ def line_title(row: dict) -> str:
     return row["report"] or row["route"] or "Duty"
 
 
-def format_line(row: dict, own_line: bool = True) -> str:
+def format_line(row: dict, own_line: bool = True, code: str | None = None) -> str:
     """One programme line as WhatsApp text: the duty itself, nobody else's code."""
     import programme
 
+    code = code or CREW_CODE
     out = [f"*{line_title(row)}*"]
     if row["std"] and row["report"]:
-        own = programme.own_report(row, CREW_CODE) if own_line else row["report"]
+        own = programme.own_report(row, code) if own_line else row["report"]
         if own != row["report"]:  # the cell lists one report time per pilot
             out.append(f"Report: {own} (cell shows {row['report']})")
         else:
@@ -310,7 +386,7 @@ def format_line(row: dict, own_line: bool = True) -> str:
     if not own_line:  # a line shown only because its crew cell needs checking
         out.append(f"Crew as read: {row['crew']}")
     elif SHOW_CREW:
-        mates = programme.crewmates(row, CREW_CODE)
+        mates = programme.crewmates(row, code)
         if mates:
             out.append(f"Crewmate: {', '.join(mates)}")
     if row["remarks"]:
@@ -324,13 +400,17 @@ def format_line(row: dict, own_line: bool = True) -> str:
     return "\n".join(out)
 
 
-def build_message(table: dict, subject_date: dt.date | None, updated: bool = False) -> str:
-    """Turn a parsed programme into the WhatsApp text for CREW_CODE.
+def build_message(
+    table: dict, subject_date: dt.date | None, updated: bool = False, code: str | None = None
+) -> str:
+    """Turn a parsed programme into the alert text for one crew code.
 
-    The message answers one question - is CREW_CODE on the programme - and
+    The message answers one question - is this pilot on the programme - and
     gives only that person's own lines. No other crew are listed.
     """
     import programme  # imported here so --peek needs no OCR libraries
+
+    code = code or CREW_CODE
 
     image_date = parse_programme_date(table.get("date") or "")
     prog_date = subject_date or image_date
@@ -345,22 +425,22 @@ def build_message(table: dict, subject_date: dt.date | None, updated: bool = Fal
             f"{image_date:%d/%m/%y}. Check the Ops email."
         )
 
-    mine, maybe, mentions = programme.find_duties(table["rows"], CREW_CODE)
+    mine, maybe, mentions = programme.find_duties(table["rows"], code)
     if mine:
         count = "1 line" if len(mine) == 1 else f"{len(mine)} lines"
-        parts.append(f"{CREW_CODE} is on the programme ({count}):")
-        parts.extend(format_line(r) for r in mine)
+        parts.append(f"{code} is on the programme ({count}):")
+        parts.extend(format_line(r, code=code) for r in mine)
     else:
-        parts.append(f"{CREW_CODE} is not on the programme.")
+        parts.append(f"{code} is not on the programme.")
     for r in mentions:  # named in the remarks of a line flown by others
         note = r["remarks"] or r["report"]
-        parts.append(f"{CREW_CODE} is mentioned on the {line_title(r)} line: {note}")
+        parts.append(f"{code} is mentioned on the {line_title(r)} line: {note}")
     if maybe:
         parts.append(
-            f"WARNING: a code very close to {CREW_CODE} is on the line(s) below - "
+            f"WARNING: a code very close to {code} is on the line(s) below - "
             "a typo or a misread. Check the Ops email."
         )
-        parts.extend(format_line(r, own_line=False) for r in maybe)
+        parts.extend(format_line(r, own_line=False, code=code) for r in maybe)
     elif not mine and table.get("doubts"):
         # Picture days only: say so when the answer rests on an unclear read.
         parts.append(
@@ -407,17 +487,16 @@ def html_bodies(msg: email.message.Message) -> list[str]:
     return found
 
 
-def message_for_email(
-    raw: bytes, updated: bool = False, any_date: bool = False
-) -> tuple[str | None, bool]:
-    """Build the WhatsApp text for one programme email.
+def read_email(raw: bytes, any_date: bool = False) -> dict:
+    """Read the programme out of one email, once, whoever it is for.
 
     Ops send the programme either as a real table in the email text or as a
     picture of the spreadsheet; the table is tried first because it needs no
-    OCR. Returns (text, readable). text is None when the email should be
-    ignored (a reply with no programme in it, or a programme for a day that
-    has already passed). readable is False when the programme could not be
-    read and the text is only a warning to go and look at the email.
+    OCR. Returns one of
+      {"kind": "skip"}        nothing to send (a reply with no programme in
+                              it, or a programme for a day that has passed)
+      {"kind": "table", "table": ..., "subject_date": ...}
+      {"kind": "unreadable", "text": ...}   only a warning to go and look
     """
     import programme
 
@@ -427,7 +506,7 @@ def message_for_email(
     today = dt.datetime.now(UK).date()
     if subject_date and subject_date < today and not any_date:
         print(f"Skipping '{subject}': programme date has passed.")
-        return None, True
+        return {"kind": "skip"}
 
     for html in html_bodies(msg):
         try:
@@ -435,7 +514,7 @@ def message_for_email(
         except programme.ProgrammeReadError:
             continue
         print("Programme read from the table in the email text.")
-        return build_message(table, subject_date, updated), True
+        return {"kind": "table", "table": table, "subject_date": subject_date}
 
     reason = "no table or picture in the email"
     for picture in images_in(msg)[:5]:
@@ -448,12 +527,38 @@ def message_for_email(
             reason = "the table has no crew lines"
             continue
         print("Programme read from the picture in the email.")
-        return build_message(table, subject_date, updated), True
+        return {"kind": "table", "table": table, "subject_date": subject_date}
 
     if re.match(r"\s*re\s*:", subject, re.I):
         print(f"Skipping '{subject}': a reply with no programme in it.")
+        return {"kind": "skip"}
+    return {"kind": "unreadable", "text": unreadable_message(subject, reason)}
+
+
+def text_for(
+    programme_read: dict, updated: bool = False, code: str | None = None
+) -> tuple[str | None, bool]:
+    """The alert text for one crew code from what read_email found.
+
+    Returns (text, readable). text is None when nothing should be sent.
+    readable is False when the programme could not be read and the text is
+    only a warning to go and look at the email.
+    """
+    if programme_read["kind"] == "skip":
         return None, True
-    return unreadable_message(subject, reason), False
+    if programme_read["kind"] == "unreadable":
+        return programme_read["text"], False
+    return (
+        build_message(programme_read["table"], programme_read["subject_date"], updated, code),
+        True,
+    )
+
+
+def message_for_email(
+    raw: bytes, updated: bool = False, any_date: bool = False, code: str | None = None
+) -> tuple[str | None, bool]:
+    """Read one programme email and build the alert text for one crew code."""
+    return text_for(read_email(raw, any_date), updated, code)
 
 
 # --------------------------------------------------------------------------
@@ -507,12 +612,17 @@ def _list_selected_folder(imap: imaplib.IMAP4_SSL, uids: list[bytes]) -> list[di
             "received": received,
             "done": DONE_LABEL.encode() in meta,
             "in_trash": False,
+            # Crew codes that already had this email's alert (see PART_LABEL).
+            "parts": {
+                m.decode().upper()
+                for m in re.findall(PART_LABEL.encode() + rb"([A-Za-z0-9]+)", meta)
+            },
         })
     return emails
 
 
 def list_programme_emails(imap: imaplib.IMAP4_SSL) -> list[dict]:
-    """Recent programme emails as {uid, subject, received, done, in_trash}, oldest first.
+    """Recent programme emails as {uid, subject, received, done, in_trash, parts}, oldest first.
 
     Emails already moved to Trash are included (always as done) so that the
     "did one arrive today" and "is this a second one for the same date"
@@ -564,6 +674,12 @@ def mark_done(imap: imaplib.IMAP4_SSL, uid: bytes) -> None:
     imap.uid("STORE", uid, "+X-GM-LABELS", f"({DONE_LABEL})")
 
 
+def mark_parts(imap: imaplib.IMAP4_SSL, uid: bytes, codes: list[str]) -> None:
+    """Record who has had the alert for an email that is not finished yet."""
+    labels = " ".join(PART_LABEL + code for code in codes)
+    imap.uid("STORE", uid, "+X-GM-LABELS", f"({labels})")
+
+
 # --------------------------------------------------------------------------
 # Commands
 # --------------------------------------------------------------------------
@@ -580,9 +696,23 @@ def cmd_peek() -> int:
     return 0
 
 
+def _tell_main_pilot(person: dict, reason: str, dry_run: bool) -> None:
+    """Let the main pilot know an extra pilot's alert could not be delivered.
+    Goes to the main pilot's own phone, so it can name the other pilot."""
+    try:
+        send_message(
+            f"*Flying programme alert*\n\nWARNING: tonight's alert could not be delivered to "
+            f"{person['code']} and will not be tried again ({reason}). They have not been told.",
+            dry_run,
+        )
+    except Exception as exc:
+        print(f"Could not tell the main pilot either: {exc}", file=sys.stderr)
+
+
 def cmd_process(dry_run: bool) -> int:
     imap = open_mailbox()
     emails = list_programme_emails(imap)
+    people = recipients()
     sent_dates = {parse_programme_date(e["subject"]) for e in emails if e["done"]}
     failures = 0
     for item in (e for e in emails if not e["done"]):
@@ -590,21 +720,53 @@ def cmd_process(dry_run: bool) -> int:
         _, fetched = imap.uid("FETCH", item["uid"], "(BODY.PEEK[])")
         raw = next(part[1] for part in fetched if isinstance(part, tuple))
         date = parse_programme_date(item["subject"])
+        updated = date is not None and date in sent_dates
         try:
-            text, readable = message_for_email(
-                raw, updated=date is not None and date in sent_dates
-            )
-            if text:
-                send_message(text, dry_run)
-            if not dry_run:
-                mark_done(imap, item["uid"])
-                # An email that could not be read stays put, so it can be looked at.
-                if readable and not KEEP_EMAILS:
-                    move_to_trash(imap, item["uid"])
-            sent_dates.add(date)
+            programme_read = read_email(raw)
         except Exception as exc:  # leave it unmarked so the next run tries again
             failures += 1
             print(f"FAILED on '{item['subject']}': {exc}", file=sys.stderr)
+            continue
+
+        readable, delivered, retry_later, gave_up = True, [], False, False
+        for person in people:
+            if person["code"] in item["parts"]:
+                continue  # had it on an earlier run
+            try:
+                text, readable = text_for(programme_read, updated, person["code"])
+                if text:
+                    send_message(text, dry_run, person["user_key"], person["who"])
+                delivered.append(person["code"])
+            except PermanentSendError as exc:
+                print(f"FAILED for {person['who']} on '{item['subject']}': {exc}", file=sys.stderr)
+                if person["main"]:
+                    retry_later = True
+                    break
+                # A wrong key will be just as wrong on the next run: say so once
+                # and move on, rather than failing every half hour.
+                gave_up = True
+                _tell_main_pilot(person, str(exc), dry_run)
+            except Exception as exc:
+                print(f"FAILED for {person['who']} on '{item['subject']}': {exc}", file=sys.stderr)
+                retry_later = True
+                if person["main"]:
+                    break  # the service is probably down for everyone; try again next run
+
+        if retry_later:
+            # Leave the email unfinished so the next run tries again, but note
+            # who already has it so nobody gets it twice.
+            failures += 1
+            if delivered and not dry_run:
+                mark_parts(imap, item["uid"], delivered)
+            continue
+        if gave_up:
+            failures += 1
+        if not dry_run:
+            mark_done(imap, item["uid"])
+            # An email that could not be read stays put, so it can be looked at.
+            if readable and not KEEP_EMAILS:
+                move_to_trash(imap, item["uid"])
+        sent_dates.add(date)
     imap.logout()
     return 1 if failures else 0
 
@@ -617,21 +779,56 @@ def cmd_check_missing(dry_run: bool) -> int:
     if any(e["received"].date() == now.date() for e in emails):
         print("A programme email arrived today.")
         return 0
-    send_message(
-        f"*Flying programme*\n\nWARNING: no programme email has reached the alert mailbox "
-        f"today (checked {now:%H:%M} UK). Check Outlook - the forwarding may have stopped.",
-        dry_run,
-    )
-    return 0
+    failures = 0
+    for person in recipients():
+        if person["main"]:
+            text = (
+                f"*Flying programme*\n\nWARNING: no programme email has reached the alert "
+                f"mailbox today (checked {now:%H:%M} UK). Check Outlook - the forwarding may "
+                "have stopped."
+            )
+        else:
+            text = (
+                f"*Flying programme*\n\nWARNING: tonight's programme has not reached the alert "
+                f"service (checked {now:%H:%M} UK), so no alert will come. Check the Ops email "
+                "for your flights."
+            )
+        try:
+            send_message(text, dry_run, person["user_key"], person["who"])
+        except Exception as exc:
+            if person["main"]:
+                raise
+            failures += 1
+            print(f"FAILED for {person['who']}: {exc}", file=sys.stderr)
+    return 1 if failures else 0
+
+
+def cmd_test(dry_run: bool) -> int:
+    """A short test message to everyone, each naming the crew code it is set up
+    for, so a key filed against the wrong pilot shows up straight away."""
+    failures = 0
+    for person in recipients():
+        try:
+            send_message(
+                f"*Flying programme alert*\n\nTest message - the alert can reach this phone. "
+                f"It is set up for crew code {person['code']}.",
+                dry_run, person["user_key"], person["who"],
+            )
+        except Exception as exc:
+            failures += 1
+            print(f"FAILED for {person['who']}: {exc}", file=sys.stderr)
+    return 1 if failures else 0
 
 
 def cmd_eml(path: str) -> int:
     with open(path, "rb") as fh:
-        text, _ = message_for_email(fh.read(), any_date=True)
-    if text:
-        send_message(text, dry_run=True)
-    else:
-        print("(no message would be sent for this email)")
+        programme_read = read_email(fh.read(), any_date=True)
+    for person in recipients():
+        text, _ = text_for(programme_read, code=person["code"])
+        if text:
+            send_message(text, dry_run=True, who=person["who"])
+        else:
+            print("(no message would be sent for this email)")
     return 0
 
 
@@ -647,15 +844,14 @@ def main() -> int:
     if args.eml:
         return cmd_eml(args.eml)
     if args.test:
-        send_message(
-            "*Flying programme alert*\n\nTest message - the alert can reach this phone.", dry_run
-        )
-        return 0
-    if args.peek:
+        result = cmd_test(dry_run)
+    elif args.peek:
         return cmd_peek()
-    if args.check_missing:
-        return cmd_check_missing(dry_run)
-    return cmd_process(dry_run)
+    elif args.check_missing:
+        result = cmd_check_missing(dry_run)
+    else:
+        result = cmd_process(dry_run)
+    return 1 if SETUP_PROBLEMS else result
 
 
 if __name__ == "__main__":

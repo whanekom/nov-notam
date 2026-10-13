@@ -95,11 +95,29 @@ Until one pair exists the job skips itself with a warning instead of failing. Th
 
 Actions tab → *Flying programme alert* → *Run workflow*, tick *Also send a short test message*, and run. A test message arrives within a minute, and any programme email in Gmail for today or later that hasn't been sent yet is processed as well.
 
+## More than one pilot
+
+Other pilots can get their own alert from the same nightly email. Each gets only their own lines, exactly as above, on their own phone.
+
+1. The other pilot installs the Pushover app, signs in with their own account, and sends you their *user key* (on the pushover.net home page, 30 letters and digits starting with `u`).
+2. Add one more repository secret called `EXTRA_PILOTS`. Its value is their crew code, an equals sign, and their user key, with one pilot per line (the codes and keys here are invented):
+
+   ```
+   JOBLO=uXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+   MASMI=uYYYYYYYYYYYYYYYYYYYYYYYYYYYYY
+   ```
+
+3. Run the test from step 4 above. Everyone gets a test message naming the crew code it is set up for.
+
+It is a secret, rather than a setting in a file, so that other pilots' codes and keys never appear in this repository or its run logs; the logs call them "extra pilot 1", "extra pilot 2".
+
+Extra pilots also get the warnings: when the email can't be read, and when no programme has arrived by the 20:00 check. If an extra pilot's key is rejected, the main pilot gets a message saying so.
+
 ## How it runs
 
 - Checks between 18:00 and 20:00 UK time. A Claude scheduled task starts the checks at 18:02, 19:02 and 20:02 (once an hour is the most it allows). GitHub's own timer covers the half-hour checks (18:32, 19:32) and backs up the others, but it can run late or skip a slot. The "no programme email today" warning comes from the 20:02 check started by the scheduled task.
 - Each email is handled once: it gets a `programme-alert-sent` label and is then moved to Gmail's Trash, which Gmail empties after 30 days. An email that could not be read is left in place. To keep handled emails, add a repository *variable* `KEEP_EMAILS` set to `true`.
-- If sending fails, the run fails (GitHub emails you) and the next run tries again.
+- If sending fails, the run fails (GitHub emails you) and the next run tries again. With more than one pilot, anyone who already had the alert is noted on the email (a `programme-alert-part-…` label) so the retry only sends what is missing.
 - GitHub pauses scheduled jobs in a repository with no activity for 60 days and emails you first; re-enable from the Actions tab.
 
 ## Run it by hand
