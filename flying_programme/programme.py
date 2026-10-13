@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import difflib
 import re
+from collections import Counter
 
 from html.parser import HTMLParser
 
@@ -453,6 +454,34 @@ def _nearly_contains(text: str, target: str) -> bool:
     return any(target[:i] + target[i + 1:] in text for i in range(n)) if n > 3 else False
 
 
+def _edit_distance(a: str, b: str) -> int:
+    """Letters to change, add, drop or swap (neighbours) to turn a into b."""
+    d = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
+    for i in range(len(a) + 1):
+        d[i][0] = i
+    for j in range(len(b) + 1):
+        d[0][j] = j
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            cost = a[i - 1] != b[j - 1]
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[len(a)][len(b)]
+
+
+def _close_code(token: str, target: str) -> bool:
+    """A mistyped version of a five-letter code: up to two letters wrong,
+    missing, extra or swapped (ANVRI typed as AVRVI), and still sharing at
+    least three of its letters so unrelated codes do not match."""
+    if len(target) < CODE_LEN or abs(len(token) - len(target)) > 2:
+        return False
+    if _edit_distance(token, target) > 2:
+        return False
+    shared = sum((Counter(token) & Counter(target)).values())
+    return shared >= len(target) - 2
+
+
 def crew_codes(rows: list[dict]) -> list[str]:
     """Every crew code on the programme, in order, without repeats."""
     seen: list[str] = []
@@ -468,7 +497,8 @@ def find_duties(rows: list[dict], my_code: str) -> tuple[list[dict], list[dict],
 
     mine: the code is in the crew cell (allowing look-alike characters such as
     1/I or 0/O, and a misread slash next to it).
-    possible: a code one letter away, which is either a typo, an OCR slip or a
+    possible: a code a letter or two away (a slip, a missing, extra or swapped
+    letter), which is either a typo, an OCR slip or a
     colleague with a similar code - flagged for checking, never assumed.
     mentions: the code appears only in another cell (usually remarks) of a
     line crewed by other people.
@@ -482,7 +512,7 @@ def find_duties(rows: list[dict], my_code: str) -> tuple[list[dict], list[dict],
         other_tokens = [_canon(t) for t in re.findall(r"[A-Z0-9]+", other_text.upper())]
         if any(target in t for t in crew_tokens):
             mine.append(r)
-        elif any(_nearly_contains(t, target) for t in crew_tokens):
+        elif any(_nearly_contains(t, target) or _close_code(t, target) for t in crew_tokens):
             possible.append(r)
         elif target in other_tokens:
             mentions.append(r)
