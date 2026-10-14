@@ -11,6 +11,7 @@ from __future__ import annotations
 import difflib
 import re
 from collections import Counter
+from collections.abc import Iterable
 
 from html.parser import HTMLParser
 
@@ -492,7 +493,9 @@ def crew_codes(rows: list[dict]) -> list[str]:
     return seen
 
 
-def find_duties(rows: list[dict], my_code: str) -> tuple[list[dict], list[dict], list[dict]]:
+def find_duties(
+    rows: list[dict], my_code: str, other_codes: Iterable[str] = ()
+) -> tuple[list[dict], list[dict], list[dict]]:
     """Return (mine, possible, mentions) rows for my_code.
 
     mine: the code is in the crew cell (allowing look-alike characters such as
@@ -502,17 +505,23 @@ def find_duties(rows: list[dict], my_code: str) -> tuple[list[dict], list[dict],
     colleague with a similar code - flagged for checking, never assumed.
     mentions: the code appears only in another cell (usually remarks) of a
     line crewed by other people.
+
+    other_codes are codes known to belong to other pilots (ALERI beside
+    ANVRI, say). Read exactly as written, they are never flagged as a near
+    miss for my_code; mistyped, they still are.
     """
     target = _canon(my_code)
+    known_others = {_canon(c) for c in other_codes} - {target}
     mine, possible, mentions = [], [], []
     for r in rows:
         readings = [r["crew"], r.get("crew_raw", ""), r.get("crew_alt", "")]
         crew_tokens = [_canon(t) for text in readings for t in re.split(r"[/\s,&+]+", text) if t]
         other_text = " ".join(r[k] for k in COLUMNS if k != "crew")
         other_tokens = [_canon(t) for t in re.findall(r"[A-Z0-9]+", other_text.upper())]
+        unknown = [t for t in crew_tokens if t not in known_others]
         if any(target in t for t in crew_tokens):
             mine.append(r)
-        elif any(_nearly_contains(t, target) or _close_code(t, target) for t in crew_tokens):
+        elif any(_nearly_contains(t, target) or _close_code(t, target) for t in unknown):
             possible.append(r)
         elif target in other_tokens:
             mentions.append(r)

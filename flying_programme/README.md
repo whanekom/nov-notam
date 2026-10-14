@@ -41,6 +41,8 @@ When a line gives one report time per pilot (`10:00/06:00`), yours is picked out
 
 You also get a warning if the email arrives but can't be read, if a code very close to yours appears, if a second programme arrives for the same date, or if no programme email has arrived by the 20:00 check.
 
+A code close to yours that is simply another pilot's (ALERI beside ANVRI, say) is not flagged when it is written correctly. The list is the repository *variable* `OTHER_CODES`, codes separated by spaces or commas; it starts as `ALERI`.
+
 The crewmate is shown by crew code only; no names are used anywhere.
 
 To leave the crewmate out, add a repository *variable* `SHOW_CREW` set to `false`.

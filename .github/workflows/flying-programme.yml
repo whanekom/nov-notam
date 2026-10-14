@@ -56,6 +56,10 @@ jobs:
       # Pushover user key, one pilot per line. Kept as a secret so their
       # codes and keys never appear in this repository or its logs.
       EXTRA_PILOTS: ${{ secrets.EXTRA_PILOTS }}
+      # Crew codes a letter or two from a pilot's own that belong to other
+      # pilots, so they are not flagged as a possible typo. Set a repository
+      # variable OTHER_CODES (codes separated by spaces or commas) to change.
+      OTHER_CODES: ${{ vars.OTHER_CODES || 'ALERI' }}
       # Your own lines show your crewmate's code. Set a repository variable
       # SHOW_CREW=false to leave that out.
       SHOW_CREW: ${{ vars.SHOW_CREW }}

@@ -21,6 +21,8 @@ Settings come from environment variables (GitHub Actions secrets):
   CREW_CODE                        whose lines to send (defaults to WIHAN)
   EXTRA_PILOTS                     other pilots who get their own alert, written
                                    CODE=their Pushover user key, one per line
+  OTHER_CODES                      crew codes that look like yours but belong to
+                                   other pilots (never flagged as a near miss)
   KEEP_EMAILS                      true = do not move handled emails to Trash
 """
 
@@ -51,6 +53,10 @@ SHOW_CREW = os.environ.get("SHOW_CREW", "").strip().lower() not in ("0", "false"
 # Once an email has been dealt with it is moved to Gmail's Trash (Gmail empties
 # that after 30 days). Set KEEP_EMAILS=true to leave handled emails in place.
 KEEP_EMAILS = os.environ.get("KEEP_EMAILS", "").strip().lower() in ("1", "true", "yes")
+# Crew codes a letter or two from a pilot's own that are known to belong to
+# other pilots (ALERI beside ANVRI). Read exactly as written they are not
+# flagged as "a code very close to yours"; mistyped, they still are.
+OTHER_CODES = {c for c in re.split(r"[\s,;/]+", os.environ.get("OTHER_CODES", "").upper()) if c}
 FOOTER = "Details subject to change - the Ops email is the authority."
 # Gmail label that records who has already had the alert for an email when a
 # send to somebody else failed, so the next run only sends what is missing.
@@ -425,7 +431,7 @@ def build_message(
             f"{image_date:%d/%m/%y}. Check the Ops email."
         )
 
-    mine, maybe, mentions = programme.find_duties(table["rows"], code)
+    mine, maybe, mentions = programme.find_duties(table["rows"], code, OTHER_CODES)
     if mine:
         count = "1 line" if len(mine) == 1 else f"{len(mine)} lines"
         parts.append(f"{code} is on the programme ({count}):")
