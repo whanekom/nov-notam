@@ -176,15 +176,16 @@ body.locked .wrap>:not(header):not(#login){display:none!important}
   <div class="field"><span>Weather</span><div class="seg" id="segWx"><button data-v="live">Live weather</button><button data-v="test">Test weather</button></div></div>
   <label class="field"><span>ETA (UTC)</span><input type="datetime-local" id="eta"></label>
   <div class="field"><span>Offshore to onshore?</span><div class="seg" id="segOff"><button data-v="1">Yes</button><button data-v="0">No</button></div></div>
+  <div class="field"><span>Airfields</span><button class="btn" id="afToggle" aria-expanded="false" aria-controls="afPanel">Airfield data</button></div>
   <div class="field"><span>Letting down over the sea?</span><div class="seg" id="segSea"><button data-v="1">Yes</button><button data-v="0">No</button></div></div>
   <div class="legend"><span><i style="background:var(--go)"></i>No alternate</span><span><i style="background:var(--one)"></i>1 alternate</span><span><i style="background:var(--two)"></i>2 alternates</span></div>
 </section>
 
 <section class="board" id="board" aria-live="polite"></section>
 
-<section class="panel">
-  <h2>Airfield data</h2>
-  <p>Heights in feet: MSA above sea level, minima above aerodrome. RVR in metres. Shaded cells are placeholders to replace with OM figures. Changes are kept in this browser only.</p>
+<section class="panel" id="afPanel" hidden>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">Airfield data</h2><span style="margin-left:auto;display:flex;gap:6px"><button class="btn" id="showAll">Show all</button><button class="btn" id="showNone">Show none</button><button class="btn" id="afClose">Close</button></span></div>
+  <p>Heights in feet: MSA above sea level, minima above aerodrome. RVR in metres. Shaded cells are placeholders to replace with OM figures. Tick <b>Show</b> to put an airfield on the main board. Changes are kept in this browser only.</p>
   <div class="tbl"><table id="afTable"></table></div>
   <div><button class="btn" id="resetAf">Reset to defaults</button></div>
 </section>
@@ -384,7 +385,7 @@ const OUT=[{t:"No alternate",c:"go"},{t:"1 alternate",c:"one"},{t:"2 alternates"
 function etaDate(){const v=$("#eta").value;return v?new Date(v+":00Z"):new Date()}
 function render(){
   const eta=etaDate();
-  $("#board").innerHTML=AF.map(af=>{
+  $("#board").innerHTML=(AF.filter(a=>a.show!==false).length?"":`<p class="note" style="color:var(--muted)">No airfields selected. Open Airfield data and tick Show.</p>`)+AF.filter(a=>a.show!==false).map(af=>{
     const r=evaluate(af,WX[af.icao]||{},eta);
     const o=r.out==null?{t:"Can't assess",c:"na"}:OUT[r.out];
     const w1=r.w1&&!r.w1.outside?r.w1:null,w2=r.w2&&!r.w2.outside?r.w2:null;
@@ -404,17 +405,17 @@ function render(){
 }
 function renderAf(){
   const cols=[["msa","MSA ft"],["mdh","MDH ft (A)"],["rvrA","RVR m (A)"],["dh","DH ft (B)"],["rvrB","RVR m (B)"]];
-  $("#afTable").innerHTML=`<thead><tr><th>ICAO</th><th>Name</th><th>Elev ft</th>${cols.map(c=>`<th>${c[1]}</th>`).join("")}<th>2 approaches</th><th>Coastal</th><th>Landing fcst</th></tr></thead><tbody>`+
-   AF.map((a,i)=>`<tr><td><b>${a.icao}</b></td><td>${esc(a.name)}</td><td><input type="number" id="af-${i}-elev" data-i="${i}" data-k="elev" value="${a.elev}"></td>`+
+  $("#afTable").innerHTML=`<thead><tr><th>Show</th><th>ICAO</th><th>Name</th><th>Elev ft</th>${cols.map(c=>`<th>${c[1]}</th>`).join("")}<th>2 approaches</th><th>Coastal</th><th>Landing fcst</th></tr></thead><tbody>`+
+   AF.map((a,i)=>`<tr><td><input type="checkbox" id="af-${i}-show" data-i="${i}" data-k="show" aria-label="Show ${a.icao} on the board" ${a.show!==false?"checked":""}></td><td><b>${a.icao}</b></td><td>${esc(a.name)}</td><td><input type="number" id="af-${i}-elev" data-i="${i}" data-k="elev" value="${a.elev}"></td>`+
     cols.map(([k])=>`<td class="${a.ph!==false?"ph":""}"><input type="number" id="af-${i}-${k}" data-i="${i}" data-k="${k}" value="${a[k]??""}" placeholder="—"></td>`).join("")+
     ["twoApp","coastal","lf"].map(k=>`<td class="${k==="twoApp"&&a.ph!==false?"ph":""}"><input type="checkbox" id="af-${i}-${k}" data-i="${i}" data-k="${k}" ${a[k]?"checked":""}></td>`).join("")+`</tr>`).join("")+"</tbody>";
 }
 function renderWx(){
-  $("#wxGrid").innerHTML=AF.map(a=>`<div style="display:grid;gap:6px;min-width:0"><label for="taf-${a.icao}">${a.icao} TAF<textarea id="taf-${a.icao}" data-icao="${a.icao}" data-k="taf">${esc(WX[a.icao]?.taf||"")}</textarea></label>
+  $("#wxGrid").innerHTML=AF.filter(a=>a.show!==false).map(a=>`<div style="display:grid;gap:6px;min-width:0"><label for="taf-${a.icao}">${a.icao} TAF<textarea id="taf-${a.icao}" data-icao="${a.icao}" data-k="taf">${esc(WX[a.icao]?.taf||"")}</textarea></label>
     <label for="metar-${a.icao}">${a.icao} METAR<textarea id="metar-${a.icao}" data-icao="${a.icao}" data-k="metar" style="min-height:40px">${esc(WX[a.icao]?.metar||"")}</textarea></label></div>`).join("");
 }
 $("#afTable").addEventListener("input",e=>{const el=e.target,i=+el.dataset.i,k=el.dataset.k;if(isNaN(i))return;
-  AF[i][k]=el.type==="checkbox"?el.checked:(el.value===""?null:+el.value);AF[i].ph=false;el.closest("td").classList.remove("ph");save("wf_af",AF);render()});
+  AF[i][k]=el.type==="checkbox"?el.checked:(el.value===""?null:+el.value);if(k!=="show"){AF[i].ph=false;el.closest("td").classList.remove("ph")}save("wf_af",AF);render();renderWx()});
 $("#wxGrid").addEventListener("input",e=>{const el=e.target;(WX[el.dataset.icao]??={})[el.dataset.k]=el.value;render()});
 $("#resetAf").onclick=()=>{AF=structuredClone(DEFAULT_AF);save("wf_af",AF);renderAf();render()};
 
@@ -460,6 +461,12 @@ function applyWx(){
   $("#segWx").querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.v===WXMODE)));
   renderWx();render();
 }
+const afPanel=$("#afPanel");
+function setAfOpen(o){afPanel.hidden=!o;$("#afToggle").setAttribute("aria-expanded",String(o));$("#afToggle").classList.toggle("primary",o);if(o){renderAf();afPanel.scrollIntoView({behavior:"smooth",block:"start"})}}
+$("#afToggle").onclick=()=>setAfOpen(afPanel.hidden);
+$("#afClose").onclick=()=>{setAfOpen(false);window.scrollTo({top:0,behavior:"smooth"})};
+const showAll=v=>{AF.forEach(a=>a.show=v);save("wf_af",AF);renderAf();render();renderWx()};
+$("#showAll").onclick=()=>showAll(true);$("#showNone").onclick=()=>showAll(false);
 $("#segWx").onclick=e=>{const x=e.target.closest("button");if(!x)return;WXMODE=x.dataset.v;applyWx()};
 function lock(on){document.body.classList.toggle("locked",on);$("#login").hidden=!on;if(on){WX={};$("#board").innerHTML="";$("#wxGrid").innerHTML=""}}
 async function loadWx(){
