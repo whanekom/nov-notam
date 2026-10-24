@@ -5,8 +5,9 @@ name: MAVIS weather (TAF/METAR)
 # Alternate Planner's upload endpoint. This repo is public, so the weather is
 # never written to the log, committed, or uploaded as a workflow artifact.
 on:
-  schedule:
-    - cron: "7 * * * *"
+  # Hourly timer, switched on once the Vercel site and secret are in place:
+  # schedule:
+  #   - cron: "7 * * * *"
   workflow_dispatch:
 
 permissions:
