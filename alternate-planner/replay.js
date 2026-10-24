@@ -50,7 +50,7 @@
         <div class="rp-checks" id="rpChecks"></div><div class="rp-verdict" id="rpVerdict"></div>
       </div>
     </div>
-    <div class="rp-box rp-tl"><svg id="rpTl" viewBox="0 0 920 230" role="img" aria-label="TAF timeline"></svg></div>
+    <div class="rp-box rp-tl"><svg id="rpTl" viewBox="0 0 920 300" role="img" aria-label="TAF timeline"></svg></div>
     <div class="rp-controls">
       <button class="btn" id="rpBack">◀ Back</button><button class="btn primary" id="rpPlay">Pause</button><button class="btn" id="rpNext">Next ▶</button>
       <div class="rp-prog" id="rpProg"></div>
@@ -80,38 +80,65 @@
   const dot = mk("circle", { r: 6, cx: -20, cy: -20, class: "rp-dot" }, flow);
 
   // timeline scaffolding, rebuilt per airfield
-  const X0 = 70, X1 = 900, CY0 = 110, CY1 = 14, VY0 = 205, VY1 = 135, CMAX = 3000;
-  let T0, T1, tx, win, wl, wr, thrC, thrCL, thrV, thrVL, wC, wV;
-  const cy = (f) => CY0 - (Math.min(f === Infinity ? CMAX : f, CMAX) / CMAX) * (CY0 - CY1);
-  const vy = (m) => VY0 - (Math.min(m, 10000) / 10000) * (VY0 - VY1);
+  // Stepped scales: equal spacing between operationally meaningful values, so fog and low cloud are readable.
+  const X0 = 96, X1 = 900;
+  const CT = [0, 200, 500, 1000, 1500, 3000], VT = [0, 500, 1000, 1500, 3000, 5000, 10000];
+  const CY0 = 128, CY1 = 34, VY0 = 262, VY1 = 168;
+  const step = (ticks, v, y0, y1, top) => {
+    if (v === Infinity || v == null) return top;
+    const n = ticks.length - 1, seg = (y0 - y1) / (n + 1);
+    if (v >= ticks[n]) return y0 - seg * n - Math.min(0.7, (v - ticks[n]) / ticks[n] * 0.7) * seg;
+    let i = 0; while (v > ticks[i + 1]) i++;
+    return y0 - seg * (i + (v - ticks[i]) / (ticks[i + 1] - ticks[i]));
+  };
+  const cy = (f) => step(CT, f, CY0, CY1, CY1);
+  const vy = (m) => step(VT, Math.min(m ?? 10000, 10000), VY0, VY1, VY1);
+  const cLab = (f) => (f === Infinity || f == null ? "no ceiling" : f + " ft");
+  const vLab = (m) => (m == null || m >= 10000 ? "10 km+" : m >= 5000 ? m / 1000 + " km" : m + " m");
+  let T0, T1, tx, win, wl, wr, wlab, thrC, thrCL, thrV, thrVL, wC, wV;
 
   function buildTimeline(taf, eta) {
     tl.innerHTML = "";
-    T0 = +taf.from; T1 = +taf.to;
-    tx = (t) => X0 + ((+t - T0) / (T1 - T0)) * (X1 - X0);
-    [0, 1000, 2000, 3000].forEach((f) => { mk("line", { x1: X0, x2: X1, y1: cy(f), y2: cy(f), class: "rp-grid" }, tl); mk("text", { x: X0 - 8, y: cy(f) + 4, "text-anchor": "end", class: "rp-ax" }, tl).textContent = f; });
-    [0, 5000, 10000].forEach((m) => { mk("line", { x1: X0, x2: X1, y1: vy(m), y2: vy(m), class: "rp-grid" }, tl); mk("text", { x: X0 - 8, y: vy(m) + 4, "text-anchor": "end", class: "rp-ax" }, tl).textContent = m / 1000 + "k"; });
-    const step = Math.max(1, Math.round((T1 - T0) / 36e5 / 10)) * 36e5;
-    for (let t = Math.ceil(T0 / 36e5) * 36e5; t <= T1; t += step) mk("text", { x: tx(t), y: 224, "text-anchor": "middle", class: "rp-ax" }, tl).textContent = new Date(t).toISOString().slice(11, 13) + "Z";
-    mk("text", { x: X0, y: 10, class: "rp-lane" }, tl).textContent = "CEILING FT";
-    mk("text", { x: X0, y: 131, class: "rp-lane" }, tl).textContent = "VISIBILITY M";
-    // sample prevailing and worst-with-TEMPO conditions every 15 minutes
-    let pc = "", pv = "", wcp = "", wvp = "";
-    for (let t = T0; t <= T1; t += 9e5) {
-      const c = at(taf, new Date(t)), x = tx(t).toFixed(1);
-      const P = c.prev, Q = c.worst, j = pc ? "L" : "M";
-      pc += `${j}${x} ${cy(P.cig ?? Infinity).toFixed(1)}`; pv += `${j}${x} ${vy(P.vis ?? 10000).toFixed(1)}`;
-      wcp += `${j}${x} ${cy(Q.cig ?? Infinity).toFixed(1)}`; wvp += `${j}${x} ${vy(Q.vis ?? 10000).toFixed(1)}`;
+    T0 = Math.max(+taf.from, +eta - 6 * 36e5); T1 = Math.min(+taf.to, +eta + 12 * 36e5);
+    tx = (t) => X0 + ((Math.min(Math.max(+t, T0), T1) - T0) / (T1 - T0)) * (X1 - X0);
+    const lane = (y, txt) => mk("text", { x: 8, y, class: "rp-lane" }, tl).textContent = txt;
+    lane(CY1 - 14, "CEILING"); lane(VY1 - 14, "VISIBILITY");
+    mk("text", { x: X0 - 8, y: CY1 + 4, "text-anchor": "end", class: "rp-ax" }, tl).textContent = "none";
+    CT.forEach((f) => { mk("line", { x1: X0, x2: X1, y1: cy(f), y2: cy(f), class: "rp-grid" }, tl); mk("text", { x: X0 - 8, y: cy(f) + 4, "text-anchor": "end", class: "rp-ax" }, tl).textContent = f ? f + " ft" : "0"; });
+    VT.forEach((m) => { mk("line", { x1: X0, x2: X1, y1: vy(m), y2: vy(m), class: "rp-grid" }, tl); mk("text", { x: X0 - 8, y: vy(m) + 4, "text-anchor": "end", class: "rp-ax" }, tl).textContent = m ? (m >= 5000 ? m / 1000 + " km" : m + " m") : "0"; });
+    for (let t = Math.ceil(T0 / 72e5) * 72e5; t <= T1; t += 72e5) {
+      mk("line", { x1: tx(t), x2: tx(t), y1: CY1 - 4, y2: VY0, class: "rp-vgrid" }, tl);
+      mk("text", { x: tx(t), y: VY0 + 20, "text-anchor": "middle", class: "rp-ax" }, tl).textContent = new Date(t).toISOString().slice(11, 13) + "Z";
     }
-    mk("path", { d: wcp, class: "rp-worst-line" }, tl); mk("path", { d: wvp, class: "rp-worst-line" }, tl);
-    mk("path", { d: pc, class: "rp-prev-line" }, tl); mk("path", { d: pv, class: "rp-prev-line" }, tl);
+    // sample every 10 minutes: prevailing line, plus TEMPO/PROB as a shaded band down to the worse value
+    const P = [], Q = [];
+    for (let t = T0; t <= T1; t += 6e5) { const c = at(taf, new Date(t)); P.push([t, c.prev]); Q.push([t, c.worst]); }
+    const line = (arr, f, k) => arr.map(([t, v], i) => `${i ? "L" : "M"}${tx(t).toFixed(1)} ${f(v[k]).toFixed(1)}`).join("");
+    const band = (f, k, dflt) => {
+      let d = "", run = [];
+      const flush = () => { if (run.length > 1) d += "M" + run.map(([t, a]) => `${tx(t).toFixed(1)} ${f(a).toFixed(1)}`).join("L") + "L" + run.slice().reverse().map(([t, , b]) => `${tx(t).toFixed(1)} ${f(b).toFixed(1)}`).join("L") + "Z"; run = []; };
+      P.forEach(([t, p], i) => { const a = p[k] ?? dflt, b = Q[i][1][k] ?? dflt; if (b < a) run.push([t, a, b]); else flush(); });
+      flush(); return d;
+    };
+    const bc = band(cy, "cig", Infinity), bv = band(vy, "vis", 10000);
+    if (bc) mk("path", { d: bc, class: "rp-tempo" }, tl);
+    if (bv) mk("path", { d: bv, class: "rp-tempo" }, tl);
+    mk("path", { d: line(P, cy, "cig"), class: "rp-prev-line" }, tl);
+    mk("path", { d: line(P, vy, "vis"), class: "rp-prev-line" }, tl);
     const lg = mk("g", {}, tl);
-    mk("line", { x1: X1 - 210, x2: X1 - 190, y1: 6, y2: 6, class: "rp-prev-line" }, lg); mk("text", { x: X1 - 185, y: 10, class: "rp-ax" }, lg).textContent = "prevailing";
-    mk("line", { x1: X1 - 110, x2: X1 - 90, y1: 6, y2: 6, class: "rp-worst-line" }, lg); mk("text", { x: X1 - 85, y: 10, class: "rp-ax" }, lg).textContent = "with TEMPO";
-    win = mk("rect", { x: tx(eta), y: CY1 - 4, width: 0, height: VY0 - CY1 + 4, class: "rp-win" }, tl);
-    wl = mk("line", { x1: tx(eta), x2: tx(eta), y1: CY1 - 4, y2: VY0, class: "rp-winedge" }, tl);
-    wr = mk("line", { x1: tx(eta), x2: tx(eta), y1: CY1 - 4, y2: VY0, class: "rp-winedge" }, tl);
+    mk("line", { x1: X1 - 250, x2: X1 - 228, y1: 10, y2: 10, class: "rp-prev-line" }, lg); mk("text", { x: X1 - 222, y: 14, class: "rp-ax" }, lg).textContent = "forecast";
+    mk("rect", { x: X1 - 150, y: 4, width: 22, height: 12, class: "rp-tempo" }, lg); mk("text", { x: X1 - 122, y: 14, class: "rp-ax" }, lg).textContent = "TEMPO / PROB";
+    // window and ETA
+    win = mk("rect", { x: tx(eta), y: CY1 - 6, width: 0, height: VY0 - CY1 + 6, class: "rp-win" }, tl);
+    wl = mk("line", { x1: tx(eta), x2: tx(eta), y1: CY1 - 6, y2: VY0, class: "rp-winedge" }, tl);
+    wr = mk("line", { x1: tx(eta), x2: tx(eta), y1: CY1 - 6, y2: VY0, class: "rp-winedge" }, tl);
+    wlab = mk("text", { x: tx(eta), y: CY1 - 10, "text-anchor": "middle", class: "rp-winlab" }, tl);
     mk("line", { x1: tx(eta), x2: tx(eta), y1: CY1 - 6, y2: VY0, class: "rp-eta" }, tl);
+    mk("text", { x: tx(eta), y: VY0 + 34, "text-anchor": "middle", class: "rp-thrlab" }, tl).textContent = "ETA " + new Date(eta).toISOString().slice(11, 16) + "Z";
+    // forecast values at ETA
+    const c0 = at(taf, eta), lx = tx(eta) + 6;
+    mk("text", { x: lx, y: cy(c0.prev.cig ?? Infinity) - 6, class: "rp-val" }, tl).textContent = cLab(c0.prev.cig ?? Infinity);
+    mk("text", { x: lx, y: vy(c0.prev.vis ?? 10000) - 6, class: "rp-val" }, tl).textContent = vLab(c0.prev.vis ?? 10000);
     thrC = mk("line", { x1: X0, x2: X1, y1: cy(0), y2: cy(0), class: "rp-thr", opacity: 0 }, tl);
     thrCL = mk("text", { x: X1, y: cy(0) - 5, "text-anchor": "end", class: "rp-thrlab", opacity: 0 }, tl);
     thrV = mk("line", { x1: X0, x2: X1, y1: vy(0), y2: vy(0), class: "rp-thr", opacity: 0 }, tl);
@@ -171,7 +198,7 @@
   const spd = () => +$("#rpSpeed").value;
   const later = (ms, f) => timers.push(setTimeout(f, ms * spd()));
   const clearT = () => { timers.forEach(clearTimeout); timers = []; cancelAnimationFrame(raf); };
-  function setWin(w) { const e = +R.eta, a = tx(e - (w || 0) * 36e5), b = tx(e + (w || 0) * 36e5); win.setAttribute("x", a); win.setAttribute("width", Math.max(0, b - a)); wl.setAttribute("x1", a); wl.setAttribute("x2", a); wr.setAttribute("x1", b); wr.setAttribute("x2", b); }
+  function setWin(w) { const e = +R.eta, a = tx(e - (w || 0) * 36e5), b = tx(e + (w || 0) * 36e5); win.setAttribute("x", a); win.setAttribute("width", Math.max(0, b - a)); wl.setAttribute("x1", a); wl.setAttribute("x2", a); wr.setAttribute("x1", b); wr.setAttribute("x2", b); wlab.setAttribute("x", (a + b) / 2); wlab.textContent = w ? "ETA ±" + w + " h" : ""; }
   function setThr(t) {
     const c = t && t.c != null, v = t && t.v != null;
     [thrC, thrCL].forEach((e) => e.setAttribute("opacity", c ? 1 : 0)); [thrV, thrVL].forEach((e) => e.setAttribute("opacity", v ? 1 : 0));
