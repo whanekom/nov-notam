@@ -1,0 +1,29 @@
+name: MAVIS page discovery (one-off)
+
+# Started by hand. Signs in to MAVIS and lists page links only (no weather),
+# to find where aerodrome TAF/METAR live. Safe to delete once done.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+      - name: List MAVIS pages
+        env:
+          MAVIS_USER: ${{ secrets.MAVIS_USER }}
+          MAVIS_PASS: ${{ secrets.MAVIS_PASS }}
+          NO_EMAIL: "1"
+        run: python mavis_discover.py
