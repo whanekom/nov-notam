@@ -227,7 +227,7 @@ function windowWx(taf,eta,hrs){
 /* ---------- daylight (NOAA approximation) ---------- */
 function sunTimes(lat,lon,date){
   const rad=Math.PI/180,day=Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate());
-  const n=(day-Date.UTC(2000,0,1,12))/864e5+0.0008, J=n-lon/360;
+  const n=Math.round((day-Date.UTC(2000,0,1,12))/864e5+0.5), J=n+0.0008-lon/360;
   const M=(357.5291+0.98560028*J)%360, C=1.9148*Math.sin(M*rad)+0.02*Math.sin(2*M*rad)+0.0003*Math.sin(3*M*rad);
   const L=(M+C+180+102.9372)%360, Jt=2451545+J+0.0053*Math.sin(M*rad)-0.0069*Math.sin(2*L*rad);
   const dec=Math.asin(Math.sin(L*rad)*Math.sin(23.44*rad));
@@ -236,7 +236,12 @@ function sunTimes(lat,lon,date){
   const w=Math.acos(cw)/rad, toD=j=>new Date((j-2440587.5)*864e5);
   return{rise:toD(Jt-w/360),set:toD(Jt+w/360)};
 }
-function isDay(af,eta){const s=sunTimes(af.lat,af.lon,eta);if(s.always)return true;if(s.never)return false;return eta>=s.rise&&eta<=s.set}
+// Night: from 30 min after sunset to 30 min before sunrise (UK definition)
+const NIGHT_MARGIN=30*6e4;
+function isDay(af,eta){const s=sunTimes(af.lat,af.lon,eta);if(s.always)return true;if(s.never)return false;return eta>=s.rise-NIGHT_MARGIN&&eta<=s.set.getTime()+NIGHT_MARGIN}
+const hhmm=d=>d.toISOString().slice(11,16)+"Z";
+function dayTag(af,eta){const s=sunTimes(af.lat,af.lon,eta);if(s.always)return "Day at ETA";if(s.never)return "Night at ETA";
+  const n=new Date(s.set.getTime()+NIGHT_MARGIN);return `${isDay(af,eta)?"Day":"Night"} at ETA · sunset ${hhmm(s.set)} · night ${hhmm(n)}`}
 
 /* ---------- the flowchart ---------- */
 const fmtC=v=>v===Infinity||v==null?"none":v+" ft";
@@ -267,8 +272,9 @@ function evaluate(af,wx,eta){
       R.can.push("Gate A met: no alternate needed");return done(0)}
     R.cant.push("Gate A not met");
     if(!step("Coastal aerodrome?",af.coastal,af.coastal?"yes":"no")){return gateB()}
-    const day=isDay(af,eta);
-    if(!step("ETA in daylight?",day,day?"yes":"no, after sunset or before sunrise")){R.cant.push("Coastal procedure: not in daylight");return gateB()}
+    const day=isDay(af,eta),st=sunTimes(af.lat,af.lon,eta);
+    const dd=st.set?`sunset ${hhmm(st.set)}, night from ${hhmm(new Date(st.set.getTime()+NIGHT_MARGIN))}`:"";
+    if(!step("ETA in daylight (before night, 30 min after sunset)?",day,day?`yes, ${dd}`:`no, ${dd}`)){R.cant.push("Coastal procedure: not in daylight");return gateB()}
     const needCo=mh+400;
     if(!step("Coastal gate: cloud ≥ minima +400 ft and vis ≥ 4000 m?",w1.worst.cig>=needCo&&w1.worst.vis>=4000,`needs ${needCo} ft / 4000 m, forecast ${fmtC(w1.worst.cig)} / ${fmtV(w1.worst.vis)}`)){R.cant.push("Coastal weather gate not met");return gateB()}
     if(state.sea){
@@ -318,7 +324,7 @@ function render(){
     const li=[...r.can.map(x=>`<li><span class="y">✓</span>${esc(x)}</li>`),...r.cant.map(x=>`<li><span class="n">✗</span>${esc(x)}</li>`)].join("");
     return `<article class="card" style="--st:var(--${o.c});--st-bg:var(--${o.c}-bg)">
       <div class="card-top"><div><div class="icao">${af.icao}</div><div class="nm">${esc(af.name)}</div>
-        <div class="tags">${af.coastal?'<span class="tag">Coastal</span>':""}<span class="tag">${af.lf?"Landing forecast":"No landing forecast"}</span><span class="tag">${isDay(af,eta)?"Day":"Night"} at ETA</span></div></div>
+        <div class="tags">${af.coastal?'<span class="tag">Coastal</span>':""}<span class="tag">${af.lf?"Landing forecast":"No landing forecast"}</span><span class="tag">${dayTag(af,eta)}</span></div></div>
         <div class="pill">${o.t}</div></div>
       <div class="wx"><div><span>±1 h prevailing</span><b>${w1?fmtC(w1.prev.cig)+" · "+fmtV(w1.prev.vis):"—"}</b></div>
         <div><span>±1 h worst</span><b>${w1?fmtC(w1.worst.cig)+" · "+fmtV(w1.worst.vis):"—"}</b></div>
