@@ -50,7 +50,7 @@
         <div class="rp-checks" id="rpChecks"></div><div class="rp-verdict" id="rpVerdict"></div>
       </div>
     </div>
-    <div class="rp-box rp-tl"><svg id="rpTl" viewBox="0 0 920 300" role="img" aria-label="TAF timeline"></svg></div>
+    <div class="rp-box rp-tl"><svg id="rpTl" viewBox="0 0 920 370" role="img" aria-label="TAF timeline"></svg></div>
     <div class="rp-controls">
       <button class="btn" id="rpBack">◀ Back</button><button class="btn primary" id="rpPlay">Pause</button><button class="btn" id="rpNext">Next ▶</button>
       <div class="rp-prog" id="rpProg"></div>
@@ -82,8 +82,8 @@
   // timeline scaffolding, rebuilt per airfield
   // Stepped scales: equal spacing between operationally meaningful values, so fog and low cloud are readable.
   const X0 = 96, X1 = 900;
-  const CT = [0, 200, 500, 1000, 1500, 3000], VT = [0, 500, 1000, 1500, 3000, 5000, 10000];
-  const CY0 = 128, CY1 = 34, VY0 = 262, VY1 = 168;
+  let CT = [0, 200, 500, 1000, 1500, 3000], VT = [0, 500, 1000, 1500, 3000, 5000, 10000], ZONES = [];
+  const CY0 = 160, CY1 = 34, VY0 = 330, VY1 = 196;
   const step = (ticks, v, y0, y1, top) => {
     if (v === Infinity || v == null) return top;
     const n = ticks.length - 1, seg = (y0 - y1) / (n + 1);
@@ -97,12 +97,43 @@
   const vLab = (m) => (m == null || m >= 10000 ? "10 km+" : m >= 5000 ? m / 1000 + " km" : m + " m");
   let T0, T1, tx, win, wl, wr, wlab, thrC, thrCL, thrV, thrVL, wC, wV;
 
-  function buildTimeline(taf, eta) {
+  // Zone boundaries come from this airfield's own minima and gates, so each band has equal height.
+  function zonesFor(af) {
+    const mh = af.dh != null ? af.dh : af.mdh, rvr = af.dh != null && af.rvrB != null ? af.rvrB : af.rvrA;
+    const gA = mh != null ? Math.max(mh + 700, 1000) : 1000, msa = af.msa != null ? af.msa - af.elev : null;
+    const uniq = (a) => [...new Set(a.filter((v) => v != null && isFinite(v)))].sort((x, y) => x - y);
+    CT = uniq([0, mh, mh != null ? mh + 400 : null, gA, msa]);
+    VT = uniq([0, rvr, 2500, 3000, 4000, 5000, 10000]);
+    const cName = (lo) => lo === 0 ? "below minima" : lo === mh ? "minima to +400 ft" : lo === mh + 400 ? "+400 ft to Gate A" : lo === gA ? "Gate A to MSA" : "above MSA";
+    const vName = (lo) => ({ 0: "below minima", [rvr]: "minima to 2500 m", 2500: "Gate A to Gate B", 3000: "Gate B to coastal", 4000: "coastal to 5 km", 5000: "5 km +", 10000: "" })[lo] ?? "";
+    ZONES = [];
+    CT.forEach((lo, i) => ZONES.push({ k: "c", lo, hi: CT[i + 1] ?? Infinity, name: cName(lo), rank: i, n: CT.length }));
+    VT.slice(0, -1).forEach((lo, i) => ZONES.push({ k: "v", lo, hi: VT[i + 1], name: vName(lo), rank: i, n: VT.length - 1 }));
+  }
+  function paintZones(thr) {
+    ZONES.forEach((z) => {
+      let cls = "rp-z rp-z" + Math.min(4, Math.round((z.rank / Math.max(1, z.n - 1)) * 4));
+      const need = thr ? (z.k === "c" ? thr.c : thr.v) : null;
+      if (need != null) cls = "rp-z " + (z.lo >= need ? "rp-zok" : "rp-zbad");
+      z.el.setAttribute("class", cls);
+      z.lab.setAttribute("class", "rp-zlab rp-halo" + (need != null ? (z.lo >= need ? " ok" : " bad") : ""));
+    });
+  }
+
+  function buildTimeline(taf, eta, af) {
     tl.innerHTML = "";
+    zonesFor(af);
     T0 = Math.max(+taf.from, +eta - 6 * 36e5); T1 = Math.min(+taf.to, +eta + 12 * 36e5);
     tx = (t) => X0 + ((Math.min(Math.max(+t, T0), T1) - T0) / (T1 - T0)) * (X1 - X0);
     const lane = (y, txt) => mk("text", { x: 8, y, class: "rp-lane" }, tl).textContent = txt;
     lane(CY1 - 14, "CEILING"); lane(VY1 - 14, "VISIBILITY");
+    ZONES.forEach((z) => {
+      const f = z.k === "c" ? cy : vy, y0 = f(z.lo), y1 = f(z.hi === Infinity ? Infinity : z.hi);
+      z.el = mk("rect", { x: X0, y: Math.min(y0, y1), width: X1 - X0, height: Math.abs(y0 - y1) }, tl);
+      z.lab = mk("text", { x: X1 - 6, y: (y0 + y1) / 2 + 4, "text-anchor": "end" }, tl);
+      z.lab.textContent = z.name;
+    });
+    paintZones(null);
     mk("text", { x: X0 - 8, y: CY1 + 4, "text-anchor": "end", class: "rp-ax" }, tl).textContent = "none";
     CT.forEach((f) => { mk("line", { x1: X0, x2: X1, y1: cy(f), y2: cy(f), class: "rp-grid" }, tl); mk("text", { x: X0 - 8, y: cy(f) + 4, "text-anchor": "end", class: "rp-ax" }, tl).textContent = f ? f + " ft" : "0"; });
     VT.forEach((m) => { mk("line", { x1: X0, x2: X1, y1: vy(m), y2: vy(m), class: "rp-grid" }, tl); mk("text", { x: X0 - 8, y: vy(m) + 4, "text-anchor": "end", class: "rp-ax" }, tl).textContent = m ? (m >= 5000 ? m / 1000 + " km" : m + " m") : "0"; });
@@ -140,9 +171,9 @@
     mk("text", { x: lx, y: cy(c0.prev.cig ?? Infinity) - 6, class: "rp-val" }, tl).textContent = cLab(c0.prev.cig ?? Infinity);
     mk("text", { x: lx, y: vy(c0.prev.vis ?? 10000) - 6, class: "rp-val" }, tl).textContent = vLab(c0.prev.vis ?? 10000);
     thrC = mk("line", { x1: X0, x2: X1, y1: cy(0), y2: cy(0), class: "rp-thr", opacity: 0 }, tl);
-    thrCL = mk("text", { x: X1, y: cy(0) - 5, "text-anchor": "end", class: "rp-thrlab", opacity: 0 }, tl);
+    thrCL = mk("text", { x: X0 + 6, y: cy(0) - 5, "text-anchor": "start", class: "rp-thrlab rp-halo", opacity: 0 }, tl);
     thrV = mk("line", { x1: X0, x2: X1, y1: vy(0), y2: vy(0), class: "rp-thr", opacity: 0 }, tl);
-    thrVL = mk("text", { x: X1, y: vy(0) - 5, "text-anchor": "end", class: "rp-thrlab", opacity: 0 }, tl);
+    thrVL = mk("text", { x: X0 + 6, y: vy(0) - 5, "text-anchor": "start", class: "rp-thrlab rp-halo", opacity: 0 }, tl);
     wC = mk("circle", { r: 6, class: "rp-worst", opacity: 0 }, tl);
     wV = mk("circle", { r: 6, class: "rp-worst", opacity: 0 }, tl);
   }
@@ -200,6 +231,7 @@
   const clearT = () => { timers.forEach(clearTimeout); timers = []; cancelAnimationFrame(raf); };
   function setWin(w) { const e = +R.eta, a = tx(e - (w || 0) * 36e5), b = tx(e + (w || 0) * 36e5); win.setAttribute("x", a); win.setAttribute("width", Math.max(0, b - a)); wl.setAttribute("x1", a); wl.setAttribute("x2", a); wr.setAttribute("x1", b); wr.setAttribute("x2", b); wlab.setAttribute("x", (a + b) / 2); wlab.textContent = w ? "ETA ±" + w + " h" : ""; }
   function setThr(t) {
+    if (ZONES.length && ZONES[0].el) paintZones(t);
     const c = t && t.c != null, v = t && t.v != null;
     [thrC, thrCL].forEach((e) => e.setAttribute("opacity", c ? 1 : 0)); [thrV, thrVL].forEach((e) => e.setAttribute("opacity", v ? 1 : 0));
     if (c) { thrC.setAttribute("y1", cy(t.c)); thrC.setAttribute("y2", cy(t.c)); thrCL.setAttribute("y", cy(t.c) - 5); thrCL.textContent = "needs " + t.cl; }
@@ -285,7 +317,7 @@
     taf = parseTAF(R.taf);
     if (!R.path.length || !taf || taf.error) return;
     S = script(R, af);
-    buildTimeline(taf, eta);
+    buildTimeline(taf, eta, af);
     const o = R.out == null ? { t: "Can't assess", c: "na" } : OUT[R.out];
     $("#rpIcao").textContent = af.icao;
     $("#rpMeta").textContent = `${af.name} · ETA ${eta.toISOString().slice(11, 16)}Z · ${state.off ? "offshore to onshore" : "not offshore to onshore"}${state.off ? (state.sea ? " · letting down over the sea" : " · not letting down over the sea") : ""}`;
