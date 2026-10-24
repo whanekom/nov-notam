@@ -68,6 +68,9 @@ def main():
                     queue.append(href.split("?")[0])
         browser.close()
     print(f"\nVisited {len(visited)} pages, {len(seen)} distinct links.")
+    body = "\n".join(f"{h}  [{t}]" for h, t in seen.items())
+    body = body.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+    print(f"::notice title=MAVIS links ({len(seen)})::{body[:60000]}")
 
 
 if __name__ == "__main__":
