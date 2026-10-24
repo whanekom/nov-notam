@@ -152,7 +152,7 @@
     const tk = text.toUpperCase().replace(/=/g, "").split(/\s+/).filter(Boolean);
     const grp = []; let g = { start: 0, temp: false };
     tk.forEach((t, i) => {
-      if (/^(TEMPO|BECMG|PROB\d\d|FM\d{6})$/.test(t)) g = { start: i, temp: /^(TEMPO|PROB)/.test(t) || (t.startsWith("PROB") ) };
+      if (/^(TEMPO|BECMG|PROB\d\d|FM\d{6})$/.test(t) && !(t === "TEMPO" && /^PROB\d\d$/.test(tk[i - 1] || ""))) g = { start: i, temp: /^(TEMPO|PROB)/.test(t) };
       grp[i] = g;
     });
     const used = new Set();

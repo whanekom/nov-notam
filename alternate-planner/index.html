@@ -205,7 +205,12 @@ const DEFAULT_AF=[
  {icao:"EGPE",name:"Inverness",lat:57.5425,lon:-4.0475,elev:31,coastal:false,lf:true, msa:4500,mdh:500,dh:250,rvrA:1500,rvrB:550,twoApp:false},
  {icao:"EGPO",name:"Stornoway",lat:58.2156,lon:-6.3311,elev:26,coastal:false,lf:true, msa:3000,mdh:500,dh:250,rvrA:1500,rvrB:550,twoApp:false},
  {icao:"EGNJ",name:"Humberside",lat:53.5744,lon:-0.3508,elev:121,coastal:false,lf:true, msa:2500,mdh:500,dh:250,rvrA:1500,rvrB:550,twoApp:false},
- {icao:"EGSH",name:"Norwich",lat:52.6758,lon:1.2828,elev:117,coastal:false,lf:true, msa:2500,mdh:500,dh:250,rvrA:1500,rvrB:550,twoApp:false}
+ {icao:"EGSH",name:"Norwich",lat:52.6758,lon:1.2828,elev:117,coastal:false,lf:true, msa:2500,mdh:500,dh:250,rvrA:1500,rvrB:550,twoApp:false},
+ {icao:"EGPH",name:"Edinburgh",lat:55.9500,lon:-3.3725,elev:135,coastal:false,lf:true, msa:3500,mdh:500,dh:250,rvrA:1500,rvrB:550,twoApp:true},
+ {icao:"EGNT",name:"Newcastle",lat:55.0375,lon:-1.6917,elev:266,coastal:false,lf:true, msa:3000,mdh:500,dh:250,rvrA:1500,rvrB:550,twoApp:true},
+ {icao:"EGPN",name:"Dundee",lat:56.4525,lon:-3.0258,elev:17,coastal:false,lf:true, msa:3000,mdh:500,dh:null,rvrA:1500,rvrB:null,twoApp:false},
+ {icao:"EGNV",name:"Teesside",lat:54.5092,lon:-1.4294,elev:120,coastal:false,lf:true, msa:3000,mdh:500,dh:250,rvrA:1500,rvrB:550,twoApp:false},
+ {icao:"EGPL",name:"Benbecula",lat:57.4811,lon:-7.3628,elev:19,coastal:false,lf:false, msa:3000,mdh:500,dh:null,rvrA:1500,rvrB:null,twoApp:false}
 ];
 const PLACEHOLDER=["msa","mdh","dh","rvrA","rvrB","twoApp"];
 
@@ -432,6 +437,11 @@ function testWx(){
    EGPA:{taf:taf("EGPA","00000KT 0500 FG VV001"),metar:met("EGPA","00000KT 0400 FG VV001 08/08 Q1010"),why:"Fog below approach minima: 2 alternates"},
    EGPO:{taf:taf("EGPO",`27025G38KT 4000 RA BKN005 TEMPO ${tmp} 1200 +RA BKN002`),metar:met("EGPO","27024G37KT 3500 RA BKN005 10/09 Q0998"),why:"Heavy-rain TEMPO, still above the Type B RVR: 1 alternate"},
    EGNJ:{taf:"",metar:"",why:"No TAF: should say it can't assess"},
+   EGPH:{taf:taf("EGPH","24012KT 9999 BKN009"),metar:met("EGPH","24011KT 9999 BKN009 11/07 Q1011"),why:"Gate A missed, Gate B met with two independent approaches: no alternate, +15 min fuel"},
+   EGNT:{taf:taf("EGNT",`22010KT 9999 BKN008 TEMPO ${t(3)}/${t(6)} 2000 DZ BKN004`),metar:met("EGNT","22010KT 9999 BKN008 12/08 Q1012"),why:"TEMPO starts just outside ±1 h but inside ±2 h: Gate B catches it, 1 alternate (default ETA)"},
+   EGPN:{taf:taf("EGPN",`24012KT 9999 BKN015 PROB30 TEMPO ${t(0)}/${t(4)} 4000 SHRA BKN007`),metar:met("EGPN","24012KT 9999 BKN016 11/06 Q1010"),why:"PROB30 TEMPO is the deciding group: 1 alternate"},
+   EGNV:{taf:taf("EGNV",`21008KT 9999 SCT030 BECMG ${t(0)}/${t(2)} 3000 BR BKN005`),metar:met("EGNV","21008KT 8000 SCT028 12/10 Q1012"),why:"BECMG deterioration across the ETA: worst of before/after counts, 1 alternate"},
+   EGPL:{taf:taf("EGPL",`26015KT 9999 BKN030 FM${t(0)}30 26020KT 1500 RA BKN003`),metar:met("EGPL","26016KT 9999 BKN028 11/08 Q1004"),why:"FM group drops it to 300 ft before the ETA: below minima, 2 alternates"},
    EGSH:{taf:taf("EGSH","22010KT 9999 FEW030",`${t(-9)}/${t(-1)}`),metar:met("EGSH","22010KT 9999 FEW030 13/07 Q1015"),why:"TAF expired before ETA: should say outside validity"}
   }}
 function applyWx(){
