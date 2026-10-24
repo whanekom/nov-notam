@@ -1,17 +1,22 @@
-name: MAVIS page discovery (one-off)
+name: MAVIS weather (TAF/METAR)
 
-# Started by hand. Signs in to MAVIS and lists page links only (no weather),
-# to find where aerodrome TAF/METAR live. Safe to delete once done.
+# Collects TAF and METAR text for every MAVIS station and keeps 24 hours of history.
+# The repo is public, so the weather file is never committed or uploaded here;
+# a private storage step will be added once the destination is chosen.
 on:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: mavis-weather
+  cancel-in-progress: false
+
 jobs:
-  discover:
+  collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,9 +26,9 @@ jobs:
         run: |
           pip install -r requirements.txt
           playwright install --with-deps chromium
-      - name: List MAVIS pages
+      - name: Collect TAF and METAR
         env:
           MAVIS_USER: ${{ secrets.MAVIS_USER }}
           MAVIS_PASS: ${{ secrets.MAVIS_PASS }}
           NO_EMAIL: "1"
-        run: python mavis_discover.py
+        run: python mavis_weather.py
