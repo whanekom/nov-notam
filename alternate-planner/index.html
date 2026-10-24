@@ -95,8 +95,8 @@ footer{font-size:12px;color:var(--muted)}
 
 <form class="panel" id="login" hidden>
   <h2>Sign in</h2>
-  <p>MAVIS weather is for NHV crews only. Enter the site password to load it.</p>
-  <div style="display:flex;gap:8px;flex-wrap:wrap"><input type="password" id="pw" autocomplete="current-password" aria-label="Password"><button class="btn" type="submit">Sign in</button></div>
+  <p>MAVIS weather is for NHV crews only. Sign in to load it.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="user" autocomplete="username" placeholder="Username" aria-label="Username"><input type="password" id="pw" autocomplete="current-password" placeholder="Password" aria-label="Password"><button class="btn" type="submit">Sign in</button></div>
   <p id="loginMsg" style="color:var(--two)"></p>
 </form>
 <div class="banner" id="srcBanner">Loading weather…</div>
@@ -364,8 +364,8 @@ async function loadWx(){
   renderWx();render();
 }
 $("#login").addEventListener("submit",async e=>{e.preventDefault();
-  const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:$("#pw").value})});
-  if(r.ok){$("#loginMsg").textContent="";loadWx()}else $("#loginMsg").textContent="That password isn't right."});
+  const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:$("#user").value,password:$("#pw").value})});
+  if(r.ok){$("#loginMsg").textContent="";loadWx()}else $("#loginMsg").textContent="That username or password isn't right."});
 renderAf();renderWx();render();loadWx();
 </script>
 
