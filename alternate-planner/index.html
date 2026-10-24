@@ -418,8 +418,8 @@ function testWx(){
   const taf=(icao,body,v=val)=>`TAF ${icao} ${iss} ${v} ${body}`;
   const met=(icao,body)=>`METAR ${icao} ${t(0)}20Z ${body}`;
   return{
-   EGPD:{taf:taf("EGPD","24012KT 9999 SCT040"),metar:met("EGPD","24011KT 9999 SCT042 12/06 Q1012"),why:"Clear above MSA: first shortcut, no alternate"},
-   EHKD:{taf:taf("EHKD","21012KT 9999 BKN012"),metar:met("EHKD","21011KT 9999 BKN013 13/08 Q1014"),why:"Gate A met (1200 ft / 10 km): no alternate"},
+   EGPD:{taf:taf("EGPD",`00000KT 0300 FG VV001 TEMPO ${tmp} 0100 FG VV000`),metar:met("EGPD","00000KT 0200 R16/0250N FG VV001 09/09 Q1018"),why:"Thick fog, worst on the board: below Type B RVR, 2 alternates"},
+   EHKD:{taf:taf("EHKD","21012KT 9999 SCT040"),metar:met("EHKD","21011KT 9999 BKN013 13/08 Q1014"),why:"Clear above MSA: first shortcut, no alternate"},
    EGPC:{taf:taf("EGPC","25015KT 9999 BKN009"),metar:met("EGPC","25014KT 9999 BKN009 10/07 Q1006"),why:"Coastal procedure, no landing forecast: coastal fuel, no alternate (in daylight; at night it drops to Gate B)"},
    EGPB:{taf:taf("EGPB",`27022G35KT 8000 -RA BKN008 TEMPO ${tmp} 3000 RA BKN004`),metar:met("EGPB","27024G36KT 7000 -RA BKN008 10/09 Q1001"),why:"TEMPO breaks every gate down to C: 1 alternate"},
    EGNH:{taf:taf("EGNH","20008KT 4000 BR BKN006"),metar:met("EGNH","20007KT 4000 BR BKN006 12/11 Q1012"),why:"Below coastal gate and Gate B, above minima: 1 alternate"},
