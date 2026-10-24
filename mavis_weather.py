@@ -127,6 +127,10 @@ def main():
     summary = (f"{len(reports)} stations, {tafs} TAFs, {metars} METARs; "
                f"{len(data['history'])} snapshots kept ({HISTORY_HOURS:g} h); "
                f"stations: {' '.join(sorted(reports))}")
+    issued = " ".join(
+        f"{k}:{HEAD.match(reports[k]['taf']).group(3)}Z"
+        for k in ("EGPD", "EGPB", "EGPC", "EGPA", "EHKD", "EGNH") if "taf" in reports.get(k, {}))
+    summary += f"; TAF issue times (DDHHMM): {issued}"
     mp.log.info(summary)
     print(f"::notice title=MAVIS weather::{summary}")
 
