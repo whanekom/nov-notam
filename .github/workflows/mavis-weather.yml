@@ -1,9 +1,12 @@
 name: MAVIS weather (TAF/METAR)
 
-# Collects TAF and METAR text for every MAVIS station and keeps 24 hours of history.
-# The repo is public, so the weather file is never committed or uploaded here;
-# a private storage step will be added once the destination is chosen.
+# Every hour: collect TAF and METAR text for every MAVIS station, keep a rolling
+# 24 hours of history, and store it privately in Vercel Blob through the
+# Alternate Planner's upload endpoint. This repo is public, so the weather is
+# never written to the log, committed, or uploaded as a workflow artifact.
 on:
+  schedule:
+    - cron: "7 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -17,6 +20,9 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      SITE_URL: https://wifly-alternate-planner.vercel.app
+      OUT_FILE: weather/mavis_weather.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,9 +32,22 @@ jobs:
         run: |
           pip install -r requirements.txt
           playwright install --with-deps chromium
+      - name: Get the stored history
+        env:
+          UPLOAD_KEY: ${{ secrets.WEATHER_UPLOAD_KEY }}
+        run: |
+          mkdir -p weather
+          code=$(curl -sS -o "$OUT_FILE" -w '%{http_code}' -H "Authorization: Bearer $UPLOAD_KEY" "$SITE_URL/api/upload" || true)
+          if [ "$code" != "200" ]; then rm -f "$OUT_FILE"; echo "::notice::No stored history yet ($code); starting fresh."; fi
       - name: Collect TAF and METAR
         env:
           MAVIS_USER: ${{ secrets.MAVIS_USER }}
           MAVIS_PASS: ${{ secrets.MAVIS_PASS }}
           NO_EMAIL: "1"
         run: python mavis_weather.py
+      - name: Store privately in Vercel Blob
+        env:
+          UPLOAD_KEY: ${{ secrets.WEATHER_UPLOAD_KEY }}
+        run: |
+          curl -sS --fail-with-body -X POST -H "Authorization: Bearer $UPLOAD_KEY" \
+            -H "Content-Type: application/json" --data-binary "@$OUT_FILE" "$SITE_URL/api/upload"
