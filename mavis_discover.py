@@ -30,47 +30,58 @@ def links_on(page):
     )
 
 
+PAGES = [
+    "/bases/aberdeen/tafs-metars-warnings/" + slug for slug in (
+        "aberdeen-ekofisk", "aberdeen-northwest", "aberdeen-to-east-shetland-basin",
+        "aberdeen-to-piper", "east-coast-route", "stornoway-offshore")
+] + [
+    "/bases/blackpool/tafs-metars-warnings/irish-sea",
+    "/bases/blackpool/tafs-metars-warnings/west-coast-route-and-ireland",
+    "/bases/sumburgh-offshore/tafs-metars-warnings/shetland-to-east-shetland-basin",
+    "/bases/humberside-offshore/tafs-metars-warnings/southern-north-sea-north",
+    "/bases/norwich/tafs-metars-warnings/east-coast-route",
+]
+
+PROBE = """() => {
+  const out = [];
+  const all = Array.from(document.querySelectorAll('body *'));
+  for (const el of all) {
+    const own = Array.from(el.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent).join(' ').trim();
+    const m = /^(TAF|METAR|SPECI)\\b(\\s+(AMD|COR))?\\s+([A-Z]{4})/.exec(own);
+    if (!m) continue;
+    const chain = [];
+    let e = el;
+    for (let i = 0; i < 4 && e; i++, e = e.parentElement)
+      chain.push(e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\\s+/).slice(0,2).join('.') : ''));
+    out.push(m[1] + ' ' + m[4] + '  <' + chain.join(' < ') + '>');
+  }
+  return out;
+}"""
+
+
 def main():
     if not (mp.MAVIS_USER and mp.MAVIS_PASS):
         print("MAVIS_USER / MAVIS_PASS missing")
         sys.exit(1)
-    seen = {}
+    lines = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_context(viewport={"width": 1400, "height": 1000}).new_page()
         page.set_default_timeout(mp.TIMEOUT)
         mp.log_in(page)
-        queue = list(START_PAGES)
-        visited = set()
-        while queue and len(visited) < 25:
-            path = queue.pop(0)
-            if path in visited:
-                continue
-            visited.add(path)
+        for path in PAGES:
             try:
                 page.goto(mp.BASE + path, wait_until="domcontentloaded")
-                page.wait_for_timeout(2500)
+                page.wait_for_timeout(4000)
+                found = page.evaluate(PROBE)
+                heads = page.eval_on_selector_all("h1,h2,h3", "els=>els.map(e=>e.innerText.trim().slice(0,40))")
+                lines.append(f"== {path} [{page.title()[:40]}] {len(found)} reports; headings: {heads[:12]}")
+                lines += ["   " + f for f in found[:60]]
             except Exception as exc:
-                print(f"!! {path}: {exc.__class__.__name__}")
-                continue
-            print(f"\n== {path}  (title: {page.title()[:60]})")
-            for href, text in links_on(page):
-                if not href or href.startswith(("mailto:", "tel:", "#", "javascript")):
-                    continue
-                href = href.replace(mp.BASE, "")
-                if href.startswith("http"):
-                    continue
-                if href not in seen:
-                    seen[href] = text
-                    print(f"   {href}   [{text}]")
-                low = (href + " " + text).lower()
-                if any(k in low for k in KEYWORDS) and href not in visited:
-                    queue.append(href.split("?")[0])
+                lines.append(f"!! {path}: {exc.__class__.__name__}")
         browser.close()
-    print(f"\nVisited {len(visited)} pages, {len(seen)} distinct links.")
-    body = "\n".join(f"{h}  [{t}]" for h, t in seen.items())
-    body = body.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
-    print(f"::notice title=MAVIS links ({len(seen)})::{body[:60000]}")
+    body = "\n".join(lines).replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+    print(f"::notice title=MAVIS stations::{body[:60000]}")
 
 
 if __name__ == "__main__":
