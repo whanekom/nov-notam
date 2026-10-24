@@ -241,7 +241,7 @@ const NIGHT_MARGIN=30*6e4;
 function isDay(af,eta){const s=sunTimes(af.lat,af.lon,eta);if(s.always)return true;if(s.never)return false;return eta>=s.rise-NIGHT_MARGIN&&eta<=s.set.getTime()+NIGHT_MARGIN}
 const hhmm=d=>d.toISOString().slice(11,16)+"Z";
 function dayTag(af,eta){const s=sunTimes(af.lat,af.lon,eta);if(s.always)return "Day at ETA";if(s.never)return "Night at ETA";
-  const n=new Date(s.set.getTime()+NIGHT_MARGIN);return `${isDay(af,eta)?"Day":"Night"} at ETA · sunset ${hhmm(s.set)} · night ${hhmm(n)}`}
+  const d=new Date(s.rise.getTime()-NIGHT_MARGIN),n=new Date(s.set.getTime()+NIGHT_MARGIN);return `${isDay(af,eta)?"Day":"Night"} at ETA · day ${hhmm(d)}–${hhmm(n)}`}
 
 /* ---------- the flowchart ---------- */
 const fmtC=v=>v===Infinity||v==null?"none":v+" ft";
@@ -273,8 +273,8 @@ function evaluate(af,wx,eta){
     R.cant.push("Gate A not met");
     if(!step("Coastal aerodrome?",af.coastal,af.coastal?"yes":"no")){return gateB()}
     const day=isDay(af,eta),st=sunTimes(af.lat,af.lon,eta);
-    const dd=st.set?`sunset ${hhmm(st.set)}, night from ${hhmm(new Date(st.set.getTime()+NIGHT_MARGIN))}`:"";
-    if(!step("ETA in daylight (before night, 30 min after sunset)?",day,day?`yes, ${dd}`:`no, ${dd}`)){R.cant.push("Coastal procedure: not in daylight");return gateB()}
+    const dd=st.set?`sunrise ${hhmm(st.rise)}, sunset ${hhmm(st.set)}; day ${hhmm(new Date(st.rise.getTime()-NIGHT_MARGIN))}–${hhmm(new Date(st.set.getTime()+NIGHT_MARGIN))}`:"";
+    if(!step("ETA in daylight (SR−30 to SS+30)?",day,day?`yes, ${dd}`:`no, ${dd}`)){R.cant.push("Coastal procedure: not in daylight");return gateB()}
     const needCo=mh+400;
     if(!step("Coastal gate: cloud ≥ minima +400 ft and vis ≥ 4000 m?",w1.worst.cig>=needCo&&w1.worst.vis>=4000,`needs ${needCo} ft / 4000 m, forecast ${fmtC(w1.worst.cig)} / ${fmtV(w1.worst.vis)}`)){R.cant.push("Coastal weather gate not met");return gateB()}
     if(state.sea){
