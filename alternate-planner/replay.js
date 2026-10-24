@@ -13,23 +13,23 @@
     gB: { x: 650, y: 195, t: "Gate B (±2 h): +400 ft / 3000 m" },
     ap: { x: 650, y: 290, t: "Two independent approaches?" },
     gC: { x: 650, y: 390, t: "Gate C (±1 h): at approach minima?" },
-    t1: { x: 345, y: 40, t: "No alternate", term: 1, w: 120 },
-    t2: { x: 345, y: 195, t: "No alternate", term: 1, w: 120 },
-    t3: { x: 345, y: 555, t: "No alt + coastal fuel", term: 1, w: 150 },
-    t4: { x: 840, y: 290, t: "No alt + 15 min", term: 1, w: 120 },
+    t1: { x: 385, y: 40, t: "No alternate", term: 1, w: 120 },
+    t2: { x: 385, y: 195, t: "No alternate", term: 1, w: 120 },
+    t3: { x: 385, y: 555, t: "No alt + coastal fuel", term: 1, w: 150 },
+    t4: { x: 850, y: 290, t: "No alt + 15 min", term: 1, w: 120 },
     one: { x: 575, y: 500, t: "1 alternate", term: 1, w: 130 },
     two: { x: 735, y: 500, t: "2 alternates", term: 1, w: 130 },
   };
   const E = [
-    ["n1", "t1", "M255 40 H285", "YES"], ["n1", "n2", "M140 62 V93", "NO"],
+    ["n1", "t1", "M255 40 H325", "YES"], ["n1", "n2", "M140 62 V93", "NO"],
     ["n2", "gA", "M140 137 V173", "YES"], ["n2", "gB", "M255 115 H650 V173", "NO"],
-    ["gA", "t2", "M255 195 H285", "YES"], ["gA", "co", "M140 217 V253", "NO"],
+    ["gA", "t2", "M255 195 H325", "YES"], ["gA", "co", "M140 217 V253", "NO"],
     ["co", "dy", "M140 297 V328", "YES"], ["co", "gB", "M255 275 H460 V195 H535", "NO"],
     ["dy", "cg", "M140 372 V403", "YES"], ["dy", "gB", "M255 350 H460 V195 H535", "NO"],
     ["cg", "se", "M140 447 V478", "YES"], ["cg", "gB", "M255 425 H460 V195 H535", "NO"],
-    ["se", "t3", "M140 522 V555 H270", "OK"], ["se", "gB", "M255 500 H460 V195 H535", "NO"],
+    ["se", "t3", "M140 522 V555 H310", "OK"], ["se", "gB", "M255 500 H460 V195 H535", "NO"],
     ["gB", "ap", "M650 217 V268", "YES"], ["gB", "gC", "M765 195 H800 V390 H765", "NO"],
-    ["ap", "t4", "M765 290 H780", "YES"], ["ap", "gC", "M650 312 V368", "NO"],
+    ["ap", "t4", "M765 290 H790", "YES"], ["ap", "gC", "M650 312 V368", "NO"],
     ["gC", "one", "M600 412 V478", "YES"], ["gC", "two", "M700 412 V478", "NO"],
   ];
   const W = 230, H = 44;
@@ -67,8 +67,8 @@
   const edgeEls = {}, nodeEls = {};
   E.forEach(([a, b, d, l]) => {
     const p = mk("path", { d, class: "rp-edge" }, flow); edgeEls[a + ">" + b] = p;
-    const pt = p.getPointAtLength(Math.min(14, p.getTotalLength() / 2));
-    mk("text", { x: pt.x + 5, y: pt.y - 4, class: "rp-elab" }, flow).textContent = l;
+    const pt = p.getPointAtLength(Math.min(18, p.getTotalLength() / 2)), horiz = /^M[\d.]+ [\d.]+ H/.test(d);
+    mk("text", { x: horiz ? pt.x : pt.x + 6, y: horiz ? pt.y - 7 : pt.y + 4, class: "rp-elab", "text-anchor": horiz ? "middle" : "start" }, flow).textContent = l;
   });
   for (const [k, n] of Object.entries(N)) {
     const w = n.w || W, g = mk("g", { class: "rp-node" + (n.term ? " term" : "") }, flow);
@@ -219,7 +219,7 @@
   }
   function moveDot(path, ms, done) {
     const L = path.getTotalLength(), t0 = performance.now(), dur = ms * spd();
-    const f = (now) => { const k = Math.min(1, (now - t0) / dur), e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2, p = path.getPointAtLength(L * e); dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); if (k < 1) raf = requestAnimationFrame(f); else done && done(); };
+    const f = (now) => { const k = Math.min(1, (now - t0) / dur), e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2, p = path.getPointAtLength(L * e); dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); if (k < 1) raf = requestAnimationFrame(f); else { dot.setAttribute("cx", -20); done && done(); } };
     raf = requestAnimationFrame(f);
   }
   function run(i, auto) {
