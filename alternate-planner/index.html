@@ -83,6 +83,64 @@ td.ph input{background:var(--warn-bg)}
 .btn{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:6px;padding:6px 12px;cursor:pointer}
 footer{font-size:12px;color:var(--muted)}
 @media (max-width:520px){.app{margin-left:0;text-align:left}.board{grid-template-columns:1fr}.legend{margin-left:0}}
+
+.pill-wrap{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.pill-wrap .pill{margin-left:0}
+.rbtn{font:inherit;font-size:12px;font-weight:600;border:1px solid var(--line);background:var(--bg);color:var(--navy);border-radius:999px;padding:4px 10px;cursor:pointer;white-space:nowrap}
+.rbtn:hover{border-color:var(--navy)}
+#replay{position:fixed;inset:0;z-index:50;background:var(--bg);overflow-y:auto;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.rp-wrap{max-width:1200px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 28px;display:grid;gap:12px}
+.rp-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.rp-icao{font-family:var(--mono);font-weight:600;font-size:20px}.rp-meta{color:var(--ink2);font-size:13px}
+.rp-pill{margin-left:auto;background:var(--st-bg);color:var(--st);font-weight:700;border-radius:999px;padding:5px 12px;font-size:13px}
+.rp-stage{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:12px}
+.rp-box{background:var(--surface);border:1px solid var(--line);border-radius:12px;min-width:0}
+.rp-box svg{width:100%;height:auto;display:block}
+.rp-node rect{fill:var(--na-bg);stroke:var(--line);stroke-width:1.2;transition:fill .35s,stroke .35s}
+.rp-node text{fill:var(--ink2);font:500 12.5px var(--sans)}
+.rp-node.active rect{fill:var(--surface);stroke:var(--gold);stroke-width:2.6}.rp-node.active text{fill:var(--ink)}
+.rp-node.yes rect{fill:var(--go-bg);stroke:var(--go)}.rp-node.yes text{fill:var(--ink)}
+.rp-node.no rect{fill:var(--two-bg);stroke:var(--two)}.rp-node.no text{fill:var(--ink)}
+.rp-node.final rect{stroke-width:2.6}.rp-node.final text{font-weight:700}
+.rp-node.final.out0 rect{fill:var(--go-bg);stroke:var(--go)}.rp-node.final.out0 text{fill:var(--go)}
+.rp-node.final.out1 rect{fill:var(--one-bg);stroke:var(--one)}.rp-node.final.out1 text{fill:var(--one)}
+.rp-node.final.out2 rect{fill:var(--two-bg);stroke:var(--two)}.rp-node.final.out2 text{fill:var(--two)}
+.rp-node.dim{opacity:.4}
+.rp-edge{fill:none;stroke:var(--line);stroke-width:1.6;transition:stroke .3s,opacity .3s}
+.rp-edge.taken{stroke:var(--navy);stroke-width:2.6}.rp-edge.dim{opacity:.35}
+.rp-elab{font:600 10px var(--sans);fill:var(--muted)}
+.rp-dot{fill:var(--gold)}
+.rp-pulse{animation:rppulse 1.1s ease-out infinite}
+@keyframes rppulse{0%{stroke-opacity:.9;stroke-width:3}100%{stroke-opacity:0;stroke-width:16}}
+.rp-cap{padding:16px 18px;display:grid;gap:12px;align-content:start}
+.rp-tafbox{display:grid;gap:6px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.rp-k{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.rp-taf{font-family:var(--mono);font-size:12.5px;line-height:1.75;color:var(--muted);word-spacing:2px;overflow-wrap:anywhere}
+.rp-taf b{font-weight:400;border-radius:3px;padding:0 2px;transition:all .3s}
+.rp-taf b.use{font-weight:700;color:var(--ink);background:color-mix(in srgb,var(--gold) 35%,transparent)}
+.rp-cap h2{margin:0;font-size:19px;text-wrap:balance}.rp-cap p{margin:0;color:var(--ink2);line-height:1.5}
+.rp-checks{display:grid;grid-template-columns:auto auto auto;gap:4px 14px;font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;justify-content:start}
+.rp-checks .h{font-family:var(--sans);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.rp-checks .ok{color:var(--go)}.rp-checks .bad{color:var(--two)}
+.rp-verdict{justify-self:start;font-weight:700;border-radius:6px;padding:4px 10px;font-size:13px;opacity:0;transition:opacity .3s}
+.rp-verdict.show{opacity:1}.rp-verdict.y{background:var(--go-bg);color:var(--go)}.rp-verdict.n{background:var(--two-bg);color:var(--two)}
+.rp-tl{padding:12px 14px 8px}
+.rp-grid{stroke:var(--line);stroke-width:1}.rp-ax{font:11px var(--mono);fill:var(--muted)}.rp-lane{font:600 10.5px var(--sans);fill:var(--muted);letter-spacing:.08em}
+.rp-prev-line{fill:none;stroke:var(--navy);stroke-width:2.4}
+.rp-worst-line{fill:none;stroke:var(--two);stroke-width:2;stroke-dasharray:6 4}
+.rp-win{fill:var(--gold);opacity:.16;transition:all .7s cubic-bezier(.3,.7,.2,1)}
+.rp-winedge{stroke:var(--gold);stroke-width:1.5;transition:all .7s cubic-bezier(.3,.7,.2,1)}
+.rp-eta{stroke:var(--ink);stroke-width:1.5}
+.rp-thr{stroke:var(--ink);stroke-width:1.6;stroke-dasharray:3 3;transition:all .6s,opacity .3s}
+.rp-thrlab{font:600 11px var(--sans);fill:var(--ink);transition:all .6s,opacity .3s}
+.rp-worst{fill:var(--two);transition:opacity .3s}
+.rp-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn.primary{background:var(--navy);color:var(--surface);border-color:var(--navy);font-weight:600;min-width:84px}
+.rp-prog{flex:1;min-width:160px;display:flex;gap:4px}
+.rp-prog i{flex:1;height:6px;border-radius:3px;background:var(--na-bg);cursor:pointer;transition:background .3s}
+.rp-prog i.done{background:var(--navy)}.rp-prog i.cur{background:var(--gold)}
+@media (max-width:820px){.rp-stage{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){.rp-pulse{animation:none}.rp-win,.rp-winedge,.rp-thr,.rp-thrlab{transition:none}}
 </style>
 
 </head><body>
@@ -248,51 +306,51 @@ const fmtC=v=>v===Infinity||v==null?"none":v+" ft";
 const fmtV=v=>v===Infinity||v==null?"—":v>=10000?"10 km+":v+" m";
 function minHt(af){return af.dh!=null?af.dh:af.mdh}
 function evaluate(af,wx,eta){
-  const R={path:[],can:[],cant:[],fuel:[],miss:[],out:null};
+  const R={path:[],can:[],cant:[],fuel:[],miss:[],out:null,taf:wx.taf,eta};
   const taf=parseTAF(wx.taf);
   if(!taf){R.miss.push("No TAF");return R}
   if(taf.error){R.miss.push("TAF: "+taf.error);return R}
   const w1=windowWx(taf,eta,1), w2=windowWx(taf,eta,2);
   R.w1=w1;R.w2=w2;
   if(w1.outside){R.miss.push("ETA ±1 h falls outside the TAF validity");return R}
-  const step=(q,ok,detail)=>{R.path.push({q,ok,detail});return ok};
+  const step=(q,ok,detail,m={})=>{R.path.push({q,ok,detail,...m});return ok};
   const done=(o,msg)=>{R.out=o;return R};
   const mh=minHt(af);
   // 1. shortcut (prevailing)
   if(af.msa==null)R.miss.push("MSA not set");
   const cigAmsl=w1.prev.cig===Infinity?Infinity:w1.prev.cig+af.elev;
-  if(af.msa!=null&&step("Prevailing ±1 h above MSA and vis ≥ 5 km?",cigAmsl>=af.msa&&w1.prev.vis>=5000,`ceiling ${fmtC(w1.prev.cig)} AAL vs MSA ${af.msa} ft, vis ${fmtV(w1.prev.vis)}`)){
+  if(af.msa!=null&&step("Prevailing ±1 h above MSA and vis ≥ 5 km?",cigAmsl>=af.msa&&w1.prev.vis>=5000,`ceiling ${fmtC(w1.prev.cig)} AAL vs MSA ${af.msa} ft, vis ${fmtV(w1.prev.vis)}`,{n:"n1",win:1,use:"prev",thr:{c:af.msa-af.elev,cl:`MSA ${af.msa} ft (${af.msa-af.elev} AAL)`,v:5000,vl:"5000 m"}})){
     R.can.push("Weather above MSA with 5 km+: no alternate needed");return done(0)}
   // 2. route
   if(state.off){
-    step("Offshore to onshore",true,"selected");
+    step("Offshore to onshore",true,"selected",{n:"n2",pilot:1});
     if(mh==null){R.miss.push("Approach minima not set");return R}
     const needC=Math.max(mh+700,1000);
-    if(step("Gate A: ceiling ≥ minima +700 ft (min 1000 ft) and vis ≥ 2500 m?",w1.worst.cig>=needC&&w1.worst.vis>=2500,`needs ${needC} ft / 2500 m, forecast ${fmtC(w1.worst.cig)} / ${fmtV(w1.worst.vis)}`)){
+    if(step("Gate A: ceiling ≥ minima +700 ft (min 1000 ft) and vis ≥ 2500 m?",w1.worst.cig>=needC&&w1.worst.vis>=2500,`needs ${needC} ft / 2500 m, forecast ${fmtC(w1.worst.cig)} / ${fmtV(w1.worst.vis)}`,{n:"gA",win:1,use:"worst",thr:{c:needC,cl:needC+" ft",v:2500,vl:"2500 m"}})){
       R.can.push("Gate A met: no alternate needed");return done(0)}
     R.cant.push("Gate A not met");
-    if(!step("Coastal aerodrome?",af.coastal,af.coastal?"yes":"no")){return gateB()}
+    if(!step("Coastal aerodrome?",af.coastal,af.coastal?"yes":"no",{n:"co"})){return gateB()}
     const day=isDay(af,eta),st=sunTimes(af.lat,af.lon,eta);
     const dd=st.set?`sunrise ${hhmm(st.rise)}, sunset ${hhmm(st.set)}; day ${hhmm(new Date(st.rise.getTime()-NIGHT_MARGIN))}–${hhmm(new Date(st.set.getTime()+NIGHT_MARGIN))}`:"";
-    if(!step("ETA in daylight (SR−30 to SS+30)?",day,day?`yes, ${dd}`:`no, ${dd}`)){R.cant.push("Coastal procedure: not in daylight");return gateB()}
+    if(!step("ETA in daylight (SR−30 to SS+30)?",day,day?`yes, ${dd}`:`no, ${dd}`,{n:"dy"})){R.cant.push("Coastal procedure: not in daylight");return gateB()}
     const needCo=mh+400;
-    if(!step("Coastal gate: cloud ≥ minima +400 ft and vis ≥ 4000 m?",w1.worst.cig>=needCo&&w1.worst.vis>=4000,`needs ${needCo} ft / 4000 m, forecast ${fmtC(w1.worst.cig)} / ${fmtV(w1.worst.vis)}`)){R.cant.push("Coastal weather gate not met");return gateB()}
+    if(!step("Coastal gate: cloud ≥ minima +400 ft and vis ≥ 4000 m?",w1.worst.cig>=needCo&&w1.worst.vis>=4000,`needs ${needCo} ft / 4000 m, forecast ${fmtC(w1.worst.cig)} / ${fmtV(w1.worst.vis)}`,{n:"cg",win:1,use:"worst",thr:{c:needCo,cl:needCo+" ft",v:4000,vl:"4000 m"}})){R.cant.push("Coastal weather gate not met");return gateB()}
     if(state.sea){
-      step("Letting down over the sea",true,"selected");
-      if(!step("Weather ≥ 600 ft and ≥ 4000 m?",w1.worst.cig>=600&&w1.worst.vis>=4000,`forecast ${fmtC(w1.worst.cig)} / ${fmtV(w1.worst.vis)}`)){R.cant.push("Let-down over the sea: weather below 600 ft / 4000 m");return gateB()}
+      step("Letting down over the sea",true,"selected",{n:"se",pilot:1});
+      if(!step("Weather ≥ 600 ft and ≥ 4000 m?",w1.worst.cig>=600&&w1.worst.vis>=4000,`forecast ${fmtC(w1.worst.cig)} / ${fmtV(w1.worst.vis)}`,{n:"se",win:1,use:"worst",thr:{c:600,cl:"600 ft",v:4000,vl:"4000 m"}})){R.cant.push("Let-down over the sea: weather below 600 ft / 4000 m");return gateB()}
       R.can.push("Let-down over the sea allowed");
-      if(step("Landing forecast (METAR with TREND) available?",af.lf,af.lf?"yes":"no")){R.fuel.push("Add approach fuel and coastal fuel IAW OM(C)")}
+      if(step("Landing forecast (METAR with TREND) available?",af.lf,af.lf?"yes":"no",{n:"se"})){R.fuel.push("Add approach fuel and coastal fuel IAW OM(C)")}
       else R.fuel.push("Apply coastal fuel IAW OM(C)");
-    } else {step("Letting down over the sea",false,"not selected");R.fuel.push("Add approach fuel and coastal fuel IAW OM(C)")}
+    } else {step("Letting down over the sea",false,"not selected",{n:"se",pilot:1});R.fuel.push("Add approach fuel and coastal fuel IAW OM(C)")}
     R.can.push("Coastal procedure: no alternate needed");return done(0);
-  } else {step("Offshore to onshore",false,"not selected");return gateB()}
+  } else {step("Offshore to onshore",false,"not selected",{n:"n2",pilot:1});return gateB()}
 
   function gateB(){
     if(mh==null){R.miss.push("Approach minima not set");return R}
     if(w2.outside){R.miss.push("ETA ±2 h falls outside the TAF validity");return R}
     const need=mh+400;
-    if(step("Gate B (±2 h): ceiling ≥ DH/MDH +400 ft and vis ≥ 3000 m?",w2.worst.cig>=need&&w2.worst.vis>=3000,`needs ${need} ft / 3000 m, forecast ${fmtC(w2.worst.cig)} / ${fmtV(w2.worst.vis)}`)){
-      if(step("Two instrument approaches with independent nav aids?",af.twoApp,af.twoApp?"yes":"no")){
+    if(step("Gate B (±2 h): ceiling ≥ DH/MDH +400 ft and vis ≥ 3000 m?",w2.worst.cig>=need&&w2.worst.vis>=3000,`needs ${need} ft / 3000 m, forecast ${fmtC(w2.worst.cig)} / ${fmtV(w2.worst.vis)}`,{n:"gB",win:2,use:"worst",thr:{c:need,cl:need+" ft",v:3000,vl:"3000 m"}})){
+      if(step("Two instrument approaches with independent nav aids?",af.twoApp,af.twoApp?"yes":"no",{n:"ap"})){
         R.fuel.push("Plan fuel for the approach needing most fuel, plus 15 min");
         R.can.push("Gate B met with two approaches: no alternate needed");return done(0)}
       R.cant.push("Gate B: only one independent approach");
@@ -300,11 +358,11 @@ function evaluate(af,wx,eta){
     return gateC();
   }
   function gateC(){
-    let ok,detail;
-    if(af.dh!=null&&af.rvrB!=null){ok=w1.worst.vis>=af.rvrB;detail=`Type B: vis ${fmtV(w1.worst.vis)} vs RVR ${af.rvrB} m`}
-    else if(af.mdh!=null&&af.rvrA!=null){ok=w1.worst.cig>=af.mdh&&w1.worst.vis>=af.rvrA;detail=`Type A: ceiling ${fmtC(w1.worst.cig)} vs MDH ${af.mdh} ft, vis ${fmtV(w1.worst.vis)} vs RVR ${af.rvrA} m`}
+    let ok,detail,thr;
+    if(af.dh!=null&&af.rvrB!=null){ok=w1.worst.vis>=af.rvrB;detail=`Type B: vis ${fmtV(w1.worst.vis)} vs RVR ${af.rvrB} m`;thr={v:af.rvrB,vl:`RVR ${af.rvrB} m`}}
+    else if(af.mdh!=null&&af.rvrA!=null){ok=w1.worst.cig>=af.mdh&&w1.worst.vis>=af.rvrA;detail=`Type A: ceiling ${fmtC(w1.worst.cig)} vs MDH ${af.mdh} ft, vis ${fmtV(w1.worst.vis)} vs RVR ${af.rvrA} m`;thr={c:af.mdh,cl:`MDH ${af.mdh} ft`,v:af.rvrA,vl:`RVR ${af.rvrA} m`}}
     else {R.miss.push("Gate C minima not set");return R}
-    step("Gate C (±1 h): at or above approach minima?",ok,detail);
+    step("Gate C (±1 h): at or above approach minima?",ok,detail,{n:"gC",win:1,use:"worst",thr});
     if(ok){R.cant.push("Needs 1 alternate");return done(1)}
     R.cant.push("Below approach minima: needs 2 alternates");return done(2);
   }
@@ -325,7 +383,7 @@ function render(){
     return `<article class="card" style="--st:var(--${o.c});--st-bg:var(--${o.c}-bg)">
       <div class="card-top"><div><div class="icao">${af.icao}</div><div class="nm">${esc(af.name)}</div>
         <div class="tags">${af.coastal?'<span class="tag">Coastal</span>':""}<span class="tag">${af.lf?"Landing forecast":"No landing forecast"}</span><span class="tag">${dayTag(af,eta)}</span></div></div>
-        <div class="pill">${o.t}</div></div>
+        <div class="pill-wrap"><div class="pill">${o.t}</div>${r.path.length?`<button class="rbtn" data-replay="${af.icao}" aria-label="Replay the decision for ${af.icao}">▶ Replay decision</button>`:""}</div></div>
       <div class="wx"><div><span>±1 h prevailing</span><b>${w1?fmtC(w1.prev.cig)+" · "+fmtV(w1.prev.vis):"—"}</b></div>
         <div><span>±1 h worst</span><b>${w1?fmtC(w1.worst.cig)+" · "+fmtV(w1.worst.vis):"—"}</b></div>
         <div><span>±2 h worst</span><b>${w2?fmtC(w2.worst.cig)+" · "+fmtV(w2.worst.vis):"—"}</b></div></div>
@@ -356,6 +414,7 @@ function seg(id,key){const el=$(id);const sync=()=>el.querySelectorAll("button")
 seg("#segOff","off");seg("#segSea","sea");
 (()=>{const d=new Date(Date.now()+36e5);d.setUTCMinutes(0,0,0);$("#eta").value=d.toISOString().slice(0,16)})();
 $("#eta").addEventListener("input",render);
+$("#board").addEventListener("click",e=>{const b=e.target.closest("[data-replay]");if(b&&window.openReplay)openReplay(b.dataset.replay)});
 async function loadWx(){
   const b=$("#srcBanner");
   try{
@@ -375,4 +434,5 @@ $("#login").addEventListener("submit",async e=>{e.preventDefault();
 renderAf();renderWx();render();loadWx();
 </script>
 
+<script src="replay.js"></script>
 </body></html>

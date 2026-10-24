@@ -1,0 +1,272 @@
+/* Decision Replay: animates the rules engine's path for one airfield against its TAF.
+   Uses globals from index.html: AF, WX, evaluate, etaDate, parseTAF, at, esc, fmtC, fmtV, OUT. */
+(function () {
+  const NS = "http://www.w3.org/2000/svg";
+  const N = {
+    n1: { x: 140, y: 40, t: "Prevailing ±1 h above MSA, vis ≥ 5 km?" },
+    n2: { x: 140, y: 115, t: "Offshore to onshore?" },
+    gA: { x: 140, y: 195, t: "Gate A: minima +700 / 2500 m" },
+    co: { x: 140, y: 275, t: "Coastal aerodrome?" },
+    dy: { x: 140, y: 350, t: "Daylight? (SR−30 to SS+30)" },
+    cg: { x: 140, y: 425, t: "Coastal gate: +400 ft / 4000 m" },
+    se: { x: 140, y: 500, t: "Let-down over sea: 600 ft / 4000 m" },
+    gB: { x: 650, y: 195, t: "Gate B (±2 h): +400 ft / 3000 m" },
+    ap: { x: 650, y: 290, t: "Two independent approaches?" },
+    gC: { x: 650, y: 390, t: "Gate C (±1 h): at approach minima?" },
+    t1: { x: 345, y: 40, t: "No alternate", term: 1, w: 120 },
+    t2: { x: 345, y: 195, t: "No alternate", term: 1, w: 120 },
+    t3: { x: 345, y: 555, t: "No alt + coastal fuel", term: 1, w: 150 },
+    t4: { x: 840, y: 290, t: "No alt + 15 min", term: 1, w: 120 },
+    one: { x: 575, y: 500, t: "1 alternate", term: 1, w: 130 },
+    two: { x: 735, y: 500, t: "2 alternates", term: 1, w: 130 },
+  };
+  const E = [
+    ["n1", "t1", "M255 40 H285", "YES"], ["n1", "n2", "M140 62 V93", "NO"],
+    ["n2", "gA", "M140 137 V173", "YES"], ["n2", "gB", "M255 115 H650 V173", "NO"],
+    ["gA", "t2", "M255 195 H285", "YES"], ["gA", "co", "M140 217 V253", "NO"],
+    ["co", "dy", "M140 297 V328", "YES"], ["co", "gB", "M255 275 H460 V195 H535", "NO"],
+    ["dy", "cg", "M140 372 V403", "YES"], ["dy", "gB", "M255 350 H460 V195 H535", "NO"],
+    ["cg", "se", "M140 447 V478", "YES"], ["cg", "gB", "M255 425 H460 V195 H535", "NO"],
+    ["se", "t3", "M140 522 V555 H270", "OK"], ["se", "gB", "M255 500 H460 V195 H535", "NO"],
+    ["gB", "ap", "M650 217 V268", "YES"], ["gB", "gC", "M765 195 H800 V390 H765", "NO"],
+    ["ap", "t4", "M765 290 H780", "YES"], ["ap", "gC", "M650 312 V368", "NO"],
+    ["gC", "one", "M600 412 V478", "YES"], ["gC", "two", "M700 412 V478", "NO"],
+  ];
+  const W = 230, H = 44;
+  const ov = document.createElement("div");
+  ov.id = "replay";
+  ov.hidden = true;
+  ov.setAttribute("role", "dialog");
+  ov.setAttribute("aria-modal", "true");
+  ov.innerHTML = `
+  <div class="rp-wrap">
+    <div class="rp-head"><div><span class="rp-icao" id="rpIcao"></span> <span class="rp-meta" id="rpMeta"></span></div>
+      <span class="rp-pill" id="rpPill"></span><button class="btn" id="rpClose" aria-label="Close replay">Close</button></div>
+    <div class="rp-stage">
+      <div class="rp-box"><svg id="rpFlow" viewBox="0 0 920 590" role="img" aria-label="Decision flowchart"></svg></div>
+      <div class="rp-box rp-cap" aria-live="polite">
+        <div class="rp-tafbox"><div class="rp-k" id="rpTafK">TAF used</div><div class="rp-taf" id="rpTaf"></div></div>
+        <div class="rp-k" id="rpStep"></div><h2 id="rpTitle"></h2><p id="rpText"></p>
+        <div class="rp-checks" id="rpChecks"></div><div class="rp-verdict" id="rpVerdict"></div>
+      </div>
+    </div>
+    <div class="rp-box rp-tl"><svg id="rpTl" viewBox="0 0 920 230" role="img" aria-label="TAF timeline"></svg></div>
+    <div class="rp-controls">
+      <button class="btn" id="rpBack">◀ Back</button><button class="btn primary" id="rpPlay">Pause</button><button class="btn" id="rpNext">Next ▶</button>
+      <div class="rp-prog" id="rpProg"></div>
+      <label class="rp-k" for="rpSpeed">Speed</label>
+      <select id="rpSpeed"><option value="1.6">Slow (training)</option><option value="1" selected>Normal</option><option value="0.45">Fast</option></select>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  const $ = (s) => ov.querySelector(s);
+  const flow = $("#rpFlow"), tl = $("#rpTl");
+  const mk = (t, a, p) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); p.appendChild(e); return e; };
+
+  // flowchart, drawn once
+  const edgeEls = {}, nodeEls = {};
+  E.forEach(([a, b, d, l]) => {
+    const p = mk("path", { d, class: "rp-edge" }, flow); edgeEls[a + ">" + b] = p;
+    const pt = p.getPointAtLength(Math.min(14, p.getTotalLength() / 2));
+    mk("text", { x: pt.x + 5, y: pt.y - 4, class: "rp-elab" }, flow).textContent = l;
+  });
+  for (const [k, n] of Object.entries(N)) {
+    const w = n.w || W, g = mk("g", { class: "rp-node" + (n.term ? " term" : "") }, flow);
+    mk("rect", { x: n.x - w / 2, y: n.y - H / 2, width: w, height: H, rx: n.term ? 20 : 8 }, g);
+    const ring = mk("rect", { x: n.x - w / 2, y: n.y - H / 2, width: w, height: H, rx: n.term ? 20 : 8, fill: "none", stroke: "var(--gold)", "stroke-opacity": 0 }, g);
+    mk("text", { x: n.x, y: n.y + 4, "text-anchor": "middle" }, g).textContent = n.t;
+    nodeEls[k] = { g, ring };
+  }
+  const dot = mk("circle", { r: 6, cx: -20, cy: -20, class: "rp-dot" }, flow);
+
+  // timeline scaffolding, rebuilt per airfield
+  const X0 = 70, X1 = 900, CY0 = 110, CY1 = 14, VY0 = 205, VY1 = 135, CMAX = 3000;
+  let T0, T1, tx, win, wl, wr, thrC, thrCL, thrV, thrVL, wC, wV;
+  const cy = (f) => CY0 - (Math.min(f === Infinity ? CMAX : f, CMAX) / CMAX) * (CY0 - CY1);
+  const vy = (m) => VY0 - (Math.min(m, 10000) / 10000) * (VY0 - VY1);
+
+  function buildTimeline(taf, eta) {
+    tl.innerHTML = "";
+    T0 = +taf.from; T1 = +taf.to;
+    tx = (t) => X0 + ((+t - T0) / (T1 - T0)) * (X1 - X0);
+    [0, 1000, 2000, 3000].forEach((f) => { mk("line", { x1: X0, x2: X1, y1: cy(f), y2: cy(f), class: "rp-grid" }, tl); mk("text", { x: X0 - 8, y: cy(f) + 4, "text-anchor": "end", class: "rp-ax" }, tl).textContent = f; });
+    [0, 5000, 10000].forEach((m) => { mk("line", { x1: X0, x2: X1, y1: vy(m), y2: vy(m), class: "rp-grid" }, tl); mk("text", { x: X0 - 8, y: vy(m) + 4, "text-anchor": "end", class: "rp-ax" }, tl).textContent = m / 1000 + "k"; });
+    const step = Math.max(1, Math.round((T1 - T0) / 36e5 / 10)) * 36e5;
+    for (let t = Math.ceil(T0 / 36e5) * 36e5; t <= T1; t += step) mk("text", { x: tx(t), y: 224, "text-anchor": "middle", class: "rp-ax" }, tl).textContent = new Date(t).toISOString().slice(11, 13) + "Z";
+    mk("text", { x: X0, y: 10, class: "rp-lane" }, tl).textContent = "CEILING FT";
+    mk("text", { x: X0, y: 131, class: "rp-lane" }, tl).textContent = "VISIBILITY M";
+    // sample prevailing and worst-with-TEMPO conditions every 15 minutes
+    let pc = "", pv = "", wcp = "", wvp = "";
+    for (let t = T0; t <= T1; t += 9e5) {
+      const c = at(taf, new Date(t)), x = tx(t).toFixed(1);
+      const P = c.prev, Q = c.worst, j = pc ? "L" : "M";
+      pc += `${j}${x} ${cy(P.cig ?? Infinity).toFixed(1)}`; pv += `${j}${x} ${vy(P.vis ?? 10000).toFixed(1)}`;
+      wcp += `${j}${x} ${cy(Q.cig ?? Infinity).toFixed(1)}`; wvp += `${j}${x} ${vy(Q.vis ?? 10000).toFixed(1)}`;
+    }
+    mk("path", { d: wcp, class: "rp-worst-line" }, tl); mk("path", { d: wvp, class: "rp-worst-line" }, tl);
+    mk("path", { d: pc, class: "rp-prev-line" }, tl); mk("path", { d: pv, class: "rp-prev-line" }, tl);
+    const lg = mk("g", {}, tl);
+    mk("line", { x1: X1 - 210, x2: X1 - 190, y1: 6, y2: 6, class: "rp-prev-line" }, lg); mk("text", { x: X1 - 185, y: 10, class: "rp-ax" }, lg).textContent = "prevailing";
+    mk("line", { x1: X1 - 110, x2: X1 - 90, y1: 6, y2: 6, class: "rp-worst-line" }, lg); mk("text", { x: X1 - 85, y: 10, class: "rp-ax" }, lg).textContent = "with TEMPO";
+    win = mk("rect", { x: tx(eta), y: CY1 - 4, width: 0, height: VY0 - CY1 + 4, class: "rp-win" }, tl);
+    wl = mk("line", { x1: tx(eta), x2: tx(eta), y1: CY1 - 4, y2: VY0, class: "rp-winedge" }, tl);
+    wr = mk("line", { x1: tx(eta), x2: tx(eta), y1: CY1 - 4, y2: VY0, class: "rp-winedge" }, tl);
+    mk("line", { x1: tx(eta), x2: tx(eta), y1: CY1 - 6, y2: VY0, class: "rp-eta" }, tl);
+    thrC = mk("line", { x1: X0, x2: X1, y1: cy(0), y2: cy(0), class: "rp-thr", opacity: 0 }, tl);
+    thrCL = mk("text", { x: X1, y: cy(0) - 5, "text-anchor": "end", class: "rp-thrlab", opacity: 0 }, tl);
+    thrV = mk("line", { x1: X0, x2: X1, y1: vy(0), y2: vy(0), class: "rp-thr", opacity: 0 }, tl);
+    thrVL = mk("text", { x: X1, y: vy(0) - 5, "text-anchor": "end", class: "rp-thrlab", opacity: 0 }, tl);
+    wC = mk("circle", { r: 6, class: "rp-worst", opacity: 0 }, tl);
+    wV = mk("circle", { r: 6, class: "rp-worst", opacity: 0 }, tl);
+  }
+
+  // which TAF words produced a value: cloud/visibility token plus its change-group header
+  function tokensFor(text, cig, vis, mode) {
+    const tk = text.toUpperCase().replace(/=/g, "").split(/\s+/).filter(Boolean);
+    const grp = []; let g = { start: 0, temp: false };
+    tk.forEach((t, i) => {
+      if (/^(TEMPO|BECMG|PROB\d\d|FM\d{6})$/.test(t)) g = { start: i, temp: /^(TEMPO|PROB)/.test(t) || (t.startsWith("PROB") ) };
+      grp[i] = g;
+    });
+    const used = new Set();
+    const pick = (test) => {
+      let best = -1;
+      tk.forEach((t, i) => { if (test(t) && (mode !== "prev" || !grp[i].temp)) best = i; });
+      if (best < 0) return;
+      used.add(best);
+      const h = grp[best];
+      if (h.start > 0) { used.add(h.start); if (/^\d{4}\/\d{4}$/.test(tk[h.start + 1] || "")) used.add(h.start + 1); if (tk[h.start + 1] === "TEMPO") { used.add(h.start + 1); used.add(h.start + 2); } }
+    };
+    if (cig != null && cig !== Infinity) pick((t) => { const m = /^(BKN|OVC|VV)(\d{3})/.exec(t); return !!m && +m[2] * 100 === cig; });
+    if (vis != null) pick((t) => (vis >= 10000 ? t === "9999" || t === "CAVOK" : t === String(vis).padStart(4, "0")));
+    return { tk, used };
+  }
+
+  // turn the engine result into an animation script
+  function script(r, af) {
+    const S = [];
+    r.path.forEach((p, i) => {
+      const w = p.win === 2 ? r.w2 : r.w1;
+      const v = w && !w.outside ? (p.use === "prev" ? w.prev : w.worst) : null;
+      const next = r.path[i + 1];
+      let edge = null;
+      if (next && next.n !== p.n) edge = p.n + ">" + next.n;
+      else if (!next) edge = p.n + ">" + ({ n1: "t1", gA: "t2", se: "t3", ap: "t4" }[p.n] || (r.out === 1 ? "one" : r.out === 2 ? "two" : "t3"));
+      if (!next && p.n === "gC") edge = r.out === 1 ? "gC>one" : "gC>two";
+      if (!next && p.n === "se" && r.out !== 0) edge = null;
+      const rows = [];
+      if (p.thr && v) {
+        if (p.thr.c != null) rows.push(["Ceiling", "≥ " + p.thr.c + " ft", fmtC(v.cig), v.cig >= p.thr.c]);
+        if (p.thr.v != null) rows.push([p.n === "gC" ? "Vis (as RVR)" : "Visibility", "≥ " + p.thr.v + " m", fmtV(v.vis), v.vis >= p.thr.v]);
+      }
+      S.push({ ...p, v, edge, rows });
+    });
+    if (r.out == null) { if (S.length) S.push({ n: S[S.length - 1].n, final: true, stop: true, q: "Can't complete", detail: r.miss.join(" · ") }); return S; }
+    const fin = r.out === 1 ? "one" : r.out === 2 ? "two" : (S.length && edgeEls[S[S.length - 1].edge] ? S[S.length - 1].edge.split(">")[1] : null);
+    if (fin) S.push({ n: fin, final: true, q: OUT[r.out].t, detail: r.fuel.length ? "Fuel: " + r.fuel.join("; ") : "" });
+    return S;
+  }
+
+  let S = [], cur = 0, playing = true, timers = [], raf = 0, R = null, taf = null;
+  const spd = () => +$("#rpSpeed").value;
+  const later = (ms, f) => timers.push(setTimeout(f, ms * spd()));
+  const clearT = () => { timers.forEach(clearTimeout); timers = []; cancelAnimationFrame(raf); };
+  function setWin(w) { const e = +R.eta, a = tx(e - (w || 0) * 36e5), b = tx(e + (w || 0) * 36e5); win.setAttribute("x", a); win.setAttribute("width", Math.max(0, b - a)); wl.setAttribute("x1", a); wl.setAttribute("x2", a); wr.setAttribute("x1", b); wr.setAttribute("x2", b); }
+  function setThr(t) {
+    const c = t && t.c != null, v = t && t.v != null;
+    [thrC, thrCL].forEach((e) => e.setAttribute("opacity", c ? 1 : 0)); [thrV, thrVL].forEach((e) => e.setAttribute("opacity", v ? 1 : 0));
+    if (c) { thrC.setAttribute("y1", cy(t.c)); thrC.setAttribute("y2", cy(t.c)); thrCL.setAttribute("y", cy(t.c) - 5); thrCL.textContent = "needs " + t.cl; }
+    if (v) { thrV.setAttribute("y1", vy(t.v)); thrV.setAttribute("y2", vy(t.v)); thrVL.setAttribute("y", vy(t.v) - 5); thrVL.textContent = "needs " + t.vl; }
+  }
+  function tafHTML(used) {
+    const { tk } = tokensFor(R.taf, null, null);
+    return tk.map((w, i) => (/^(TEMPO|BECMG|PROB\d\d|FM\d{6})$/.test(w) && !(tk[i - 1] || "").startsWith("PROB") ? "<br>" : "") + `<b class="${used && used.has(i) ? "use" : ""}">${esc(w)}</b>`).join(" ");
+  }
+  function setWorst(s) {
+    const v = s && s.v && s.thr ? s.v : null;
+    const showC = v && s.thr.c != null, showV = v && s.thr.v != null;
+    wC.setAttribute("opacity", showC ? 1 : 0); wV.setAttribute("opacity", showV ? 1 : 0);
+    let used = null;
+    if (v) {
+      used = tokensFor(R.taf, showC ? v.cig : null, showV ? v.vis : null, s.use).used;
+      // place markers at the first time in the window that hits the worst value
+      const w = s.win || 1, e = +R.eta;
+      let tC = e, tV = e;
+      for (let t = e - w * 36e5, fc = 0, fv = 0; t <= e + w * 36e5; t += 6e5) {
+        const c = at(taf, new Date(t)), q = s.use === "prev" ? c.prev : c.worst;
+        if (!fc && (q.cig ?? Infinity) === v.cig) { tC = t; fc = 1; }
+        if (!fv && (q.vis ?? 10000) === v.vis) { tV = t; fv = 1; }
+      }
+      if (showC) { wC.setAttribute("cx", tx(tC)); wC.setAttribute("cy", cy(v.cig)); }
+      if (showV) { wV.setAttribute("cx", tx(tV)); wV.setAttribute("cy", vy(v.vis)); }
+    }
+    $("#rpTaf").innerHTML = tafHTML(used);
+  }
+  function paintStatic(upto) {
+    for (const k in nodeEls) { nodeEls[k].g.setAttribute("class", "rp-node" + (N[k].term ? " term" : "")); nodeEls[k].ring.classList.remove("rp-pulse"); }
+    for (const k in edgeEls) edgeEls[k].setAttribute("class", "rp-edge");
+    for (let i = 0; i < upto; i++) { const s = S[i]; if (s.final) continue; nodeEls[s.n].g.classList.add(s.ok ? "yes" : "no"); if (s.edge && edgeEls[s.edge]) edgeEls[s.edge].classList.add("taken"); }
+    $("#rpProg").querySelectorAll("i").forEach((b, i) => (b.className = i < upto ? "done" : i === upto ? "cur" : ""));
+    dot.setAttribute("cx", -20);
+  }
+  function caption(s, i, show) {
+    $("#rpStep").textContent = `Step ${i + 1} of ${S.length}`;
+    $("#rpTitle").textContent = s.final ? "Result: " + s.q : s.q;
+    $("#rpText").textContent = s.final ? s.detail : s.pilot ? "Pilot answer: " + s.detail : s.detail;
+    $("#rpChecks").innerHTML = s.rows && s.rows.length ? `<span class="h">Check</span><span class="h">Needs</span><span class="h">Forecast</span>` + s.rows.map((r) => `<span>${r[0]}</span><span>${r[1]}</span><span class="${show ? (r[3] ? "ok" : "bad") : ""}">${show ? r[2] : "…"}</span>`).join("") : "";
+    const v = $("#rpVerdict"); v.className = "rp-verdict";
+    if (!s.final && show) { v.textContent = s.ok ? "YES" : "NO"; v.classList.add("show", s.ok ? "y" : "n"); }
+  }
+  function moveDot(path, ms, done) {
+    const L = path.getTotalLength(), t0 = performance.now(), dur = ms * spd();
+    const f = (now) => { const k = Math.min(1, (now - t0) / dur), e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2, p = path.getPointAtLength(L * e); dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); if (k < 1) raf = requestAnimationFrame(f); else done && done(); };
+    raf = requestAnimationFrame(f);
+  }
+  function run(i, auto) {
+    clearT(); cur = i; paintStatic(i);
+    const s = S[i], ne = nodeEls[s.n];
+    setThr(null); setWorst(null); if (s.win) setWin(s.win);
+    ne.g.classList.add("active"); ne.ring.classList.add("rp-pulse"); caption(s, i, false);
+    if (s.final) {
+      ne.g.classList.remove("active"); if (!s.stop) ne.g.classList.add("final", "out" + (R.out ?? 0)); ne.ring.classList.remove("rp-pulse"); caption(s, i, true);
+      for (const k in nodeEls) if (!/yes|no|final/.test(nodeEls[k].g.getAttribute("class"))) nodeEls[k].g.classList.add("dim");
+      for (const k in edgeEls) if (!edgeEls[k].classList.contains("taken")) edgeEls[k].classList.add("dim");
+      setPlay(false); return;
+    }
+    const hasWx = !!(s.thr && s.v);
+    later(hasWx ? 500 : 200, () => setThr(s.thr));
+    later(hasWx ? 1300 : 300, () => setWorst(s));
+    later(hasWx ? 2100 : 900, () => { caption(s, i, true); ne.ring.classList.remove("rp-pulse"); ne.g.classList.remove("active"); ne.g.classList.add(s.ok ? "yes" : "no"); });
+    later(hasWx ? 2900 : 1500, () => {
+      const p = s.edge && edgeEls[s.edge];
+      const go = () => { if (playing && auto !== false) later(250, () => run(i + 1)); };
+      if (p) { p.classList.add("taken"); moveDot(p, 900, go); } else go();
+    });
+  }
+  function setPlay(p) { playing = p; $("#rpPlay").textContent = p ? "Pause" : cur >= S.length - 1 ? "Replay" : "Play"; }
+  $("#rpPlay").onclick = () => { if (cur >= S.length - 1 && !playing) { setPlay(true); run(0); return; } setPlay(!playing); if (playing) run(cur); };
+  $("#rpNext").onclick = () => { setPlay(false); run(Math.min(S.length - 1, cur + 1), false); };
+  $("#rpBack").onclick = () => { setPlay(false); run(Math.max(0, cur - 1), false); };
+  $("#rpProg").onclick = (e) => { const i = e.target.dataset.i; if (i == null) return; setPlay(false); run(+i, false); };
+  const close = () => { clearT(); ov.hidden = true; document.body.style.overflow = ""; };
+  $("#rpClose").onclick = close;
+  ov.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); if (e.key === "ArrowRight") $("#rpNext").click(); if (e.key === "ArrowLeft") $("#rpBack").click(); });
+
+  window.openReplay = function (icao) {
+    const af = AF.find((a) => a.icao === icao), eta = etaDate();
+    R = evaluate(af, WX[icao] || {}, eta);
+    taf = parseTAF(R.taf);
+    if (!R.path.length || !taf || taf.error) return;
+    S = script(R, af);
+    buildTimeline(taf, eta);
+    const o = R.out == null ? { t: "Can't assess", c: "na" } : OUT[R.out];
+    $("#rpIcao").textContent = af.icao;
+    $("#rpMeta").textContent = `${af.name} · ETA ${eta.toISOString().slice(11, 16)}Z · ${state.off ? "offshore to onshore" : "not offshore to onshore"}${state.off ? (state.sea ? " · letting down over the sea" : " · not letting down over the sea") : ""}`;
+    const pill = $("#rpPill"); pill.textContent = o.t; pill.style.setProperty("--st", `var(--${o.c})`); pill.style.setProperty("--st-bg", `var(--${o.c}-bg)`);
+    $("#rpTafK").textContent = "TAF used · " + af.icao;
+    $("#rpProg").innerHTML = S.map((_, i) => `<i data-i="${i}" title="Step ${i + 1}"></i>`).join("");
+    ov.hidden = false; document.body.style.overflow = "hidden"; $("#rpClose").focus();
+    setWin(1);
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) { setPlay(false); run(0, false); } else { setPlay(true); run(0); }
+  };
+})();
