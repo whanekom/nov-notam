@@ -159,6 +159,11 @@
     const lg = mk("g", {}, tl);
     mk("line", { x1: X1 - 250, x2: X1 - 228, y1: 10, y2: 10, class: "rp-prev-line" }, lg); mk("text", { x: X1 - 222, y: 14, class: "rp-ax" }, lg).textContent = "forecast";
     mk("rect", { x: X1 - 150, y: 4, width: 22, height: 12, class: "rp-tempo" }, lg); mk("text", { x: X1 - 122, y: 14, class: "rp-ax" }, lg).textContent = "TEMPO / PROB";
+    // always-on +-2h reference lines, drawn under the dynamic (per-step) window lines
+    const ref2a = tx(+eta - 2 * 36e5), ref2b = tx(+eta + 2 * 36e5);
+    mk("line", { x1: ref2a, x2: ref2a, y1: CY1 - 6, y2: VY0, class: "rp-ref2" }, tl);
+    mk("line", { x1: ref2b, x2: ref2b, y1: CY1 - 6, y2: VY0, class: "rp-ref2" }, tl);
+    mk("text", { x: ref2b + 4, y: VY0 - 4, class: "rp-ref2lab" }, tl).textContent = "±2 h";
     // window and ETA
     win = mk("rect", { x: tx(eta), y: CY1 - 6, width: 0, height: VY0 - CY1 + 6, class: "rp-win" }, tl);
     wl = mk("line", { x1: tx(eta), x2: tx(eta), y1: CY1 - 6, y2: VY0, class: "rp-winedge" }, tl);
