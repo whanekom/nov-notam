@@ -50,7 +50,7 @@
         <div class="rp-checks" id="rpChecks"></div><div class="rp-verdict" id="rpVerdict"></div>
       </div>
     </div>
-    <div class="rp-box rp-tl"><svg id="rpTl" viewBox="0 0 920 348" role="img" aria-label="TAF timeline"></svg></div>
+    <div class="rp-box rp-tl"><svg id="rpTl" viewBox="0 0 920 278" role="img" aria-label="TAF timeline"></svg></div>
     <div class="rp-controls">
       <button class="btn" id="rpBack">◀ Back</button><button class="btn primary" id="rpPlay">Pause</button><button class="btn" id="rpNext">Next ▶</button>
       <div class="rp-prog" id="rpProg"></div>
@@ -83,7 +83,7 @@
   // Stepped scales: equal spacing between operationally meaningful values, so fog and low cloud are readable.
   const X0 = 96, X1 = 900;
   let CT = [0, 200, 500, 1000, 1500, 3000], VT = [0, 500, 1000, 1500, 3000, 5000, 10000], ZONES = [];
-  const CY0 = 160, CY1 = 31, VY0 = 312, VY1 = 178;
+  const CY0 = 128, CY1 = 25, VY0 = 249, VY1 = 142;
   const step = (ticks, v, y0, y1, top) => {
     if (v === Infinity || v == null) return top;
     const n = ticks.length - 1, seg = (y0 - y1) / (n + 1);
